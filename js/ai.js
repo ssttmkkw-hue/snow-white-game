@@ -90,6 +90,12 @@ function cardOptions(st, v) {
   const sw = snowGuess(st, v), swP = sw === v ? 1 : snowP(st, v, sw);
   const q = best(st, v, queenP), qP = q >= 0 ? queenP(st, v, q) : 0;
   const tg = s => can(st, v, s) && !st.players[s].killed;
+  // 规则：罗泽基本暴露后（概率 > 0.5），白雪阵营优先针对罗泽——罗泽活着、白雪也活着，就是罗泽独赢
+  const roseOf = (a, b, c) => roleDist(a, b, c).rose || 0;
+  const roseP = s => roseOf(st, v, s);
+  const rz = sd === 'snow' && my !== 'rose' ? best(st, v, roseOf, s => tg(s)) : -1;
+  const rp = rz >= 0 ? roseP(rz) : 0;
+  const huntRose = rp > 0.5;
   const opts = [];
   me.hand.forEach((card, idx) => {
     if (!cardPlayable(st, v, card)) return;
@@ -101,12 +107,14 @@ function cardOptions(st, v) {
         const focus = sd === 'queen' ? snowP : queenP;
         const ur = others(st, v).filter(s => tg(s) && !st.roleKnow[v][s]).sort((a, b) => focus(st, v, b) - focus(st, v, a))[0];
         if (ur !== undefined) add(4 + 2 * focus(st, v, ur), ur, 'role');
+        if (rz >= 0 && rp > 0.3 && rp < 0.85 && !st.roleKnow[v][rz]) add(4 + 3 * rp, rz, 'role');   // 确认罗泽
         break;
       }
       case 'truth': {
         if (sd === 'queen' && sw >= 0 && sw !== v && tg(sw) && !st.roleKnow[v][sw]) add(swP >= 0.45 ? 3 + 6 * swP : 0.3, sw, 'snow');
         else if (sd === 'queen' && sw >= 0 && st.roleKnow[v][sw] && !st.players[sw].roleUp && tg(sw)) add(8, sw, 'snow'); // 确知白雪 → 当众揭穿
         if (sd !== 'queen' && q >= 0 && tg(q) && !st.players[q].roleUp) add(qP >= 0.35 ? 3 + 5 * qP : 0.3, q, 'queen');
+        if (rz >= 0 && !st.players[rz].roleUp && rp > 0.35) add(3 + 6 * rp, rz, 'rose');
         break;
       }
       case 'likeApple': case 'likeShroom': {
@@ -134,7 +142,8 @@ function cardOptions(st, v) {
         const cw = evalDir('cw'), ccw = evalDir('ccw');
         const now = sd === 'queen' ? appleScore(st, v, st.players[Math.max(sw, 0)].apple) * 4 : -appleScore(st, v, st.players[Math.max(sw, 0)].apple) * 4;
         const bestDir = cw >= ccw ? 'cw' : 'ccw';
-        add(Math.max(cw, ccw) - now > 1 ? 5 : 0.4, null, bestDir);
+        const gain = Math.max(cw, ccw) - now;
+        add(gain > 1 ? 5 : gain >= -0.2 ? 0.3 : -1, null, bestDir);
         break;
       }
       case 'baton': {
@@ -149,17 +158,20 @@ function cardOptions(st, v) {
       case 'knife': {
         const t = others(st, v).filter(s => tg(s) && known(st, v, s) === undefined && !hasDodge(st, v, s)).sort((a, b) => (b === sw) - (a === sw))[0];
         if (t !== undefined) add(2.5, t);
+        if (huntRose && tg(rz) && known(st, v, rz) === undefined && !hasDodge(st, v, rz)) add(3.5, rz);
         break;
       }
       case 'rope': {
         const t = sd === 'queen' ? sw : q;
-        if (t >= 0 && t !== v && tg(t) && !hasDodge(st, v, t)) add(isFinal(st) ? 5 : 1.2, t);
+        const conf = sd === 'queen' ? swP : qP;
+        if (t >= 0 && t !== v && tg(t) && !hasDodge(st, v, t)) add(isFinal(st) ? 4 + 2 * conf : 0.8 + 2 * conf, t);
+        if (huntRose && tg(rz) && !hasDodge(st, v, rz)) add(isFinal(st) ? 6.5 : 2.2, rz);
         break;
       }
       case 'comb': {
         if (sd === 'queen' && sw >= 0 && sw !== v && tg(sw) && !hasDodge(st, v, sw)) add(6 + 6 * swP, sw);
         else if (sd !== 'queen' && q >= 0 && tg(q) && !hasDodge(st, v, q)) add(4 + 5 * qP, q);
-        if (sd === 'snow') { const rz = best(st, v, (a, b, c) => roleDist(a, b, c).rose || 0, s => tg(s)); const rp = rz >= 0 ? (roleDist(st, v, rz).rose || 0) : 0; if (rz >= 0 && rp > 0.3 && !hasDodge(st, v, rz)) add(3 + 7 * rp, rz); }
+        if (rz >= 0 && rp > 0.3 && !hasDodge(st, v, rz)) add(huntRose ? 10 + rp : 3 + 7 * rp, rz);
         break;
       }
       case 'itadaki': add(isFinal(st) ? 0.2 : 1.6, null, st.deck.length <= 6 ? 3 : 2); break;
@@ -181,15 +193,24 @@ function keepVal(st, v, c) {
   return 1;
 }
 
+// 抽牌后手里有两张、必须送走一张：比较“送走哪张”。
+// 送走第 i 张的得分 = max(打出它的效果, 弃掉=0) − 它留着的价值。打出效果为正就打，比白白弃掉强。
 function chooseAfterDraw(st, v) {
   const me = st.players[v];
-  const top = cardOptions(st, v)[0];
-  let di = -1;
-  me.hand.forEach((c, i) => { if (cardDiscardable(c) && (di < 0 || keepVal(st, v, c) < keepVal(st, v, me.hand[di]))) di = i; });
-  // 打出价值 vs 弃掉最差那张的代价
-  if (top && (top.value >= 1.5 || di < 0)) return { type: 'play', idx: top.idx, target: top.target, opt: top.opt };
-  if (di >= 0) return { type: 'discard', idx: di };
-  return { type: 'play', idx: top.idx, target: top.target, opt: top.opt };
+  const opts = cardOptions(st, v);
+  let bestPick = null;
+  me.hand.forEach((c, i) => {
+    const o = opts.filter(x => x.idx === i)[0];          // cardOptions 已按价值排好序
+    const playV = o ? o.value : -Infinity;
+    const discV = cardDiscardable(c) ? 0 : -Infinity;
+    const gain = Math.max(playV, discV);
+    if (gain === -Infinity) return;
+    const score = gain - keepVal(st, v, c) * 0.6 + rand() * 0.05;
+    if (!bestPick || score > bestPick.score) bestPick = { i, score, o, play: playV > 0.05 && playV >= discV };
+  });
+  if (!bestPick) return opts[0] ? { type: 'play', idx: opts[0].idx, target: opts[0].target, opt: opts[0].opt } : { type: 'discard', idx: 0 };
+  if (bestPick.play) return { type: 'play', idx: bestPick.i, target: bestPick.o.target, opt: bestPick.o.opt };
+  return { type: 'discard', idx: bestPick.i };
 }
 
 export function aiArrange(st, v) {
@@ -275,7 +296,7 @@ export function aiStep(st, v) {
   const normalAt = sortHard(ot.filter(s => soft(st, v, s) === 'normal'));
   const story = storyWorth(st, v);
   const qGuess = () => best(st, v, queenP, s => can(st, v, s));
-  const fallback = () => (L.story && story > 0 ? { type: 'story' } : known(st, v, v) === undefined ? { type: 'peekOwn' } : L.story ? { type: 'story' } : { type: 'peekOwn' });
+  const fallback = () => (L.story && story > 0 ? { type: 'story' } : known(st, v, v) === undefined ? { type: 'peekOwn' } : (L.story && st.deck.length) ? { type: 'story' } : { type: 'peekOwn' });
 
   // 诅咒戒指：赶紧送走
   if (me.hand.includes('ring') && L.swapHand) {
