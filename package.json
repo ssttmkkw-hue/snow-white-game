@@ -1,0 +1,11 @@
+{
+  "name": "poison-apple-supper",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "林中晚宴·毒苹果：身份推理 + 苹果交换博弈（网页版，单人对 AI）",
+  "scripts": {
+    "sim": "node dev/sim.js",
+    "serve": "python -m http.server 5226"
+  }
+}

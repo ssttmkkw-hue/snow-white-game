@@ -1,0 +1,5 @@
+{
+  "_说明": "需要停顿的句子：合成时用这里的 SSML（<break time=\"...ms\"/>），字幕仍用 lines.json 的纯文本。不要在台词里用破折号——会读错。break 只计正文字数，不额外计费。",
+  "green_open": "<speak>格林，请睁眼。<break time=\"600ms\"/>看清楚<break time=\"400ms\"/>谁，是白雪公主。</speak>",
+  "black_open": "<speak>布莱克，请睁眼。<break time=\"600ms\"/>看看<break time=\"400ms\"/>毒苹果，在谁的手上。</speak>"
+}

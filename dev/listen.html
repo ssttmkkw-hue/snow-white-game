@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>台词试听</title>
+<style>
+  :root { --bg: #f6f2ea; --ink: #2b2118; --muted: #7a6a58; --line: #e2d8c8; --accent: #8a2f3a; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #1b1714; --ink: #f1e8dc; --muted: #a8998a; --line: #3a322b; --accent: #e0848f; } }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.6 system-ui, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  main { max-width: 640px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 20px; margin: 4px 0 12px; }
+  .who { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+  .who a { padding: 4px 10px; border: 1px solid var(--line); border-radius: 14px; color: var(--ink); text-decoration: none; font-size: 13px; }
+  .who a.on { border-color: var(--accent); color: var(--accent); }
+  .bar { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; font-size: 13px; color: var(--muted); }
+  button { font: inherit; cursor: pointer; border: 1px solid var(--line); background: transparent; color: var(--ink); border-radius: 8px; padding: 4px 10px; }
+  .row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .row .k { width: 150px; flex: none; font-size: 12px; color: var(--muted); word-break: break-all; }
+  .row .t { flex: 1; }
+  .row.playing .t { color: var(--accent); font-weight: 600; }
+</style>
+</head>
+<body>
+<main>
+  <h1>台词试听</h1>
+  <div class="who" id="who"></div>
+  <div class="bar"><button id="all">▶ 从头连播</button><button id="stop">■ 停</button><span id="info"></span></div>
+  <div id="list"></div>
+</main>
+<script>
+const WHO = [['narration', '裁判'], ['shitou', '石头'], ['yeying', '夜影'], ['liuliu', '溜溜'], ['nuonuo', '糯糯'], ['xiaolu', '小鹿'], ['diandian', '点点'], ['tantan', '炭炭']];
+const who = new URLSearchParams(location.search).get('who') || 'xiaolu';
+const base = who === 'narration' ? '../audio/narration/' : `../audio/players/${who}/`;
+const ext = new URLSearchParams(location.search).get('ext') || 'mp3';
+document.getElementById('who').innerHTML = WHO.map(([id, n]) => `<a href="?who=${id}" class="${id === who ? 'on' : ''}">${n}</a>`).join('');
+const audio = new Audio();
+let rows = [], idx = -1, chain = false;
+function play(i) {
+  rows.forEach(r => r.el.classList.remove('playing'));
+  idx = i; const r = rows[i]; if (!r) { chain = false; return; }
+  r.el.classList.add('playing');
+  audio.src = base + r.k + '.' + ext; audio.play().catch(() => {});
+}
+audio.onended = () => { if (chain) play(idx + 1); else rows.forEach(r => r.el.classList.remove('playing')); };
+document.getElementById('all').onclick = () => { chain = true; play(0); };
+document.getElementById('stop').onclick = () => { chain = false; audio.pause(); rows.forEach(r => r.el.classList.remove('playing')); };
+fetch(base + 'lines.json', { cache: 'no-cache' }).then(r => r.json()).then(j => {
+  const list = document.getElementById('list');
+  rows = Object.entries(j).filter(([k]) => !k.startsWith('_')).map(([k, t]) => {
+    const el = document.createElement('div'); el.className = 'row';
+    el.innerHTML = `<button>▶</button><span class="k">${k}</span><span class="t">${t}</span>`;
+    list.appendChild(el); return { k, t, el };
+  });
+  rows.forEach((r, i) => r.el.querySelector('button').onclick = () => { chain = false; play(i); });
+  document.getElementById('info').textContent = `${rows.length} 句 · ${ext}`;
+}).catch(() => { document.getElementById('list').textContent = '这个角色还没有台词文件。'; });
+</script>
+</body>
+</html>

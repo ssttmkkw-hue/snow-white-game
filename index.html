@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#120d1a">
+<title>林中晚宴 · 毒苹果</title>
+<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/banquet.css">
+</head>
+<body>
+<div id="app">
+  <!-- 开始界面 -->
+  <section id="screen-start" class="screen">
+    <div class="start-hero">
+      
+      <h1>林中晚宴</h1>
+      <p class="sub">毒苹果 · 八人身份推理</p>
+    </div>
+    <div class="start-card">
+      <label class="field">你的名字<input id="in-name" maxlength="8" value="我"></label>
+      <div class="field setup-count">人数
+        <div id="count-pick" class="seg"></div>
+      </div>
+      <p id="setup-desc" class="hint"></p>
+      <button id="btn-start" class="btn primary big">入席开饭</button>
+      <button id="btn-rules" class="btn ghost">规则与角色</button>
+    </div>
+    <p class="foot"></p>
+  </section>
+
+  <!-- 游戏界面 -->
+  <section id="screen-game" class="screen hidden">
+    <header class="topbar">
+      <button id="btn-menu" class="icon-btn" aria-label="菜单">☰</button>
+      <div class="status">
+        <span id="st-round">第 1 轮</span>
+        <span id="st-deck">📜 0</span>
+        <span id="st-final" class="final hidden">🕯️ 最后一轮</span>
+      </div>
+      <div class="tb-right">
+        <button id="btn-chart" class="tb-btn" aria-label="角色喜好与能力速查">角色</button>
+        <button id="btn-log" class="tb-btn" aria-label="记录">记录</button>
+      </div>
+    </header>
+
+    <div id="table-wrap">
+      <div id="news"></div>
+      <div id="longtable"></div>
+    </div>
+
+    <div id="panel">
+      <div id="prompt" class="prompt"></div>
+      <div id="my-hand" class="hand"></div>
+      <div id="actions" class="actions"></div>
+    </div>
+  </section>
+
+  <!-- 弹层 -->
+  <div id="sheet" class="sheet hidden"><div class="sheet-body"><div class="sheet-head"><b id="sheet-title"></b><button class="icon-btn" data-close>✕</button></div><div id="sheet-content"></div></div></div>
+  <div id="overlay" class="overlay hidden"></div>
+  <div id="toast" class="toast"></div>
+</div>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
