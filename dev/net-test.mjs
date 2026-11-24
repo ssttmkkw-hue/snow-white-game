@@ -44,7 +44,7 @@ function client(name, { play = false, late = false } = {}) {
       if (m.t === 'welcome') { c.id = m.id; resolve(c); }
       if (m.t === 'lobby') c.lobby = m;
       if (m.t === 'start' || m.t === 'sync') { c.seat = m.seat; c.v = m.view; if (m.t === 'sync') c.sync = m; audit(name, m.seat, m.view); }
-      if (m.t === 'up') { c.v = m.view; audit(name, c.seat, m.view); }
+      if (m.t === 'up') { c.v = m.view; audit(name, c.seat, m.view); if (m.view.phase === 'over') c.over = m.view; }   // 白雪提前倒下：没有结算，直接结束
       if (m.t === 'settled') { c.settled = m; for (const k of ['queen', 'roles', 'final']) audit(name + '/' + k, c.seat, m[k], k === 'roles'); }   // roles = 结算时所有人翻开角色卡
       if (['start', 'sync', 'up'].includes(m.t)) {
         ws.send(JSON.stringify({ t: 'ack', v: m.v }));
@@ -79,11 +79,11 @@ await new Promise(r => setTimeout(r, 300));
 check(watcher.sync?.seat === -1, '中途进来的人不是观战');
 
 const t0 = Date.now();
-while (!host.settled && Date.now() - t0 < 120000) await new Promise(r => setTimeout(r, 200));
-check(!!host.settled, '一局没打完（超时）');
-const fin = host.settled?.final;
+while (!host.settled && !host.over && Date.now() - t0 < 120000) await new Promise(r => setTimeout(r, 200));
+check(!!(host.settled || host.over), '一局没打完（超时）');
+const fin = host.settled?.final || host.over;
 if (fin) {
-  console.log(`打完一局：${fin.turnCount} 手，胜方 ${fin.result.winner}，房主手动出手 ${host.acted} 次，观战收到 ${watcher.msgs} 条消息`);
+  console.log(`打完一局：${fin.turnCount} 手，胜方 ${fin.result.winner}${fin.result.early ? '（白雪提前倒下）' : ''}，房主手动出手 ${host.acted} 次，观战收到 ${watcher.msgs} 条消息`);
   check(fin.players.filter(p => p.human).length === 3, '真人数量不对');
   check(fin.players.every(p => p.role), '结算时没有翻开所有身份');
 }

@@ -1,5 +1,5 @@
 // 无头对局：node dev/sim.js [局数]     NOTALK=1 关闭嘴炮对比
-import { newGame, act, settleQueen, settleFinish, queenCanGive, remarkAfterPeek } from '../js/engine.js';
+import { newGame, act, settleQueen, settleFinish, queenCanGive, remarkAfterPeek, SETUPS } from '../js/engine.js';
 import { aiStep, aiQueenTarget, setTalk, aiAfterPeek } from '../js/ai.js';
 
 let TALK_ON = true;
@@ -14,8 +14,10 @@ export function playOut(seed) {
     act(st, v, a);
     if (a.type === 'peekOwn' && TALK_ON) { const val = aiAfterPeek(st, v); if (val) remarkAfterPeek(st, v, val); }
   }
-  settleQueen(st, queenCanGive(st) ? aiQueenTarget(st) : null);
-  settleFinish(st);
+  if (st.phase === 'settle') {   // 白雪提前倒下时 phase 已经是 over
+    settleQueen(st, queenCanGive(st) ? aiQueenTarget(st) : null);
+    settleFinish(st);
+  }
   return st;
 }
 
@@ -35,12 +37,13 @@ if (process.argv[1]?.endsWith('sim.js')) {
       if (st.settleSteps.some(s => s.k === 'queenGive')) c.give++;
       if (st.events.some(e => e.k === 'dodge')) c.dodge++;
       if (st.events.some(e => e.k === 'reveal')) c.reveal++;
+      if (st.result.early) { c.early = (c.early || 0) + 1; c['early_' + st.result.early.cause] = (c['early_' + st.result.early.cause] || 0) + 1; }
       c.talk += st.claims.length; for (const cl of st.claims) { c.byType = c.byType || {}; c.byType[cl.type] = (c.byType[cl.type] || 0) + 1; c.byVoice = c.byVoice || {}; const vo = st.players[cl.seat].voice || 'P0'; c.byVoice[vo] = (c.byVoice[vo] || 0) + 1; }
     } catch (e) { c.errs++; if (c.errs <= 3) console.error(e.stack); }
   }
   const pc = x => (100 * x / games).toFixed(1) + '%';
-  console.log(`8人4毒28牌  白雪阵营 ${pc(c.snow)}  女王阵营 ${pc(c.queen)}  罗泽独胜 ${pc(c.rose)}`);
-  console.log(`平均回合 ${(c.turns / games).toFixed(1)} | 毒梳子杀人 ${pc(c.combKill)} | 戒指致死 ${pc(c.ring)}（最后回合开始时 ${pc(c.ringFinal || 0)}） | 王子复活 ${pc(c.prince)} | 女王送毒 ${pc(c.give)} | 挡武器 ${pc(c.dodge)} | 真面目猜中 ${pc(c.reveal)} | 发言 ${(c.talk / games).toFixed(1)} | 错误 ${c.errs}`);
+  console.log(`8人4毒${Object.values(SETUPS[8].deck).reduce((a, b) => a + b, 0)}牌  白雪阵营 ${pc(c.snow)}  女王阵营 ${pc(c.queen)}  罗泽独胜 ${pc(c.rose)}`);
+  console.log(`平均回合 ${(c.turns / games).toFixed(1)} | 毒梳子杀人 ${pc(c.combKill)} | 戒指致死 ${pc(c.ring)}（最后回合开始时 ${pc(c.ringFinal || 0)}） | 王子复活 ${pc(c.prince)} | 女王送毒 ${pc(c.give)} | 挡武器 ${pc(c.dodge)} | 真面目猜中 ${pc(c.reveal)} | 白雪提前倒下 ${pc(c.early || 0)}（梳子 ${pc(c.early_comb || 0)} 戒指 ${pc(c.early_ring || 0)}） | 发言 ${(c.talk / games).toFixed(1)} | 错误 ${c.errs}`);
   const per = o => Object.fromEntries(Object.entries(o || {}).map(([k, v]) => [k, +(v / games).toFixed(2)]));
   console.log('每局发言·按类型', per(c.byType));
   console.log('每局发言·按人', per(c.byVoice));

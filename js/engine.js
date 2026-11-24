@@ -44,11 +44,11 @@ export const CARDS = {
 };
 export const cardName = c => CARDS[c].short || CARDS[c].name;
 
-// 8 人局：故事卡固定 28 张（用户 2026-11-23 定的配比）
+// 8 人局：故事卡固定 30 张（用户 2026-11-23 定的配比；11-24 加 1 张“你喜欢苹果吗？”、1 张“今天要做些什么好呢”）
 export const SETUPS = {
   8: { roles: ['snow', 'green', 'light', 'grey', 'queen', 'black', 'navy', 'rose'], poison: 4,
-       deck: { mirror: 2, truth: 1, likeApple: 3, likeShroom: 4, roulette: 2, roulette2: 1, knife: 1,
-               itadaki: 3, plan: 2, rope: 3, baton: 1, comb: 1, dodge: 2, ring: 1, prince: 1 } },
+       deck: { mirror: 2, truth: 1, likeApple: 4, likeShroom: 4, roulette: 2, roulette2: 1, knife: 1,
+               itadaki: 3, plan: 3, rope: 3, baton: 1, comb: 1, dodge: 2, ring: 1, prince: 1 } },
 };
 
 // ---------- 随机数（可复现） ----------
@@ -383,7 +383,7 @@ function playCard(st, seat, card, t, opt) {
     }
     case 'comb': {
       log(st, `🪮 ${nm(st, seat)} 对 ${nm(st, t)} 打出【毒梳子】！`, 'all', 'warn');
-      weapon(st, seat, t, card, () => { toDiscard(); P[t].killed = true; P[t].killedBy = 'comb'; log(st, `💀 ${nm(st, t)} 被毒梳子杀害了。`, 'all', 'warn'); ev(st, { k: 'killed', seat: t }); });
+      weapon(st, seat, t, card, () => { toDiscard(); P[t].killed = true; P[t].killedBy = 'comb'; log(st, `💀 ${nm(st, t)} 被毒梳子杀害了。`, 'all', 'warn'); ev(st, { k: 'killed', seat: t }); snowFell(st, t, 'comb', seat); });
       return;
     }
     case 'itadaki': {
@@ -448,6 +448,7 @@ function triggerFinal(st, extra) {
 
 function endTurn(st) {
   st.pending = null;
+  if (st.phase === 'over') return { ok: true, over: true };   // 白雪已经倒下，晚宴提前结束
   // 交棒的额外行动结束：回到出牌人，再把出牌人的回合正常结束（额外行动不占最后一轮的名额）
   if (st.baton) { const b = st.baton; st.baton = null; st.turn = b.from; }
   st.turnCount++;
@@ -476,7 +477,23 @@ function cursedNow(st, s, via = 'turn') {
   st.handKnow.forEach(hk => { hk[s] = { cards: ['ring'], turn: st.turnCount, partial: true }; });
   log(st, `💍 ${via === 'baton' ? `${p.name} 接棒时` : `轮到 ${p.name} 时`}，手里还攥着【诅咒戒指】……被诅咒而死！`, 'all', 'warn', 'ringDeath');
   ev(st, { k: 'ringDeath', seat: s, via });
+  snowFell(st, s, 'ring');
   return true;
+}
+
+// 白雪公主在晚宴前就倒下了（毒梳子 / 诅咒戒指）→ 不用再玩下去：女王阵营直接获胜，所有人翻开角色和苹果
+function snowFell(st, s, cause, by = null) {
+  if (st.players[s].role !== 'snow' || st.phase !== 'play') return;
+  const P = st.players;
+  P.forEach(p => { p.roleUp = true; st.apples[p.apple].up = true; });
+  st.players.forEach(p => revealRole(st, p.seat));
+  const dead = P.map(p => !!p.killed);
+  const winners = P.filter(p => teamOf(st, p.seat) === 'queen').map(p => p.seat);
+  st.result = { winner: 'queen', poisoned: P.map(() => false), killed: dead.slice(), ringDeath: P.map(() => false), dead, winners, revived: false, early: { seat: s, cause, by } };
+  st.phase = 'over'; st.pending = null; st.baton = null; st.turn = -1;
+  log(st, `👸 白雪公主 ${nm(st, s)} ${cause === 'comb' ? '被毒梳子刺中' : '被诅咒戒指夺走了性命'}……晚宴提前结束！`, 'all', 'warn');
+  log(st, `🏆 ${TEAMS.queen}获胜！`, 'all', 'win');
+  ev(st, { k: 'snowFell', seat: s, cause });
 }
 function toSettle(st) { st.phase = 'settle'; st.turn = -1; log(st, '🍽️ 最后的回合结束——最后的晚餐开始了！', 'all', 'warn'); return { ok: true, settle: true }; }
 

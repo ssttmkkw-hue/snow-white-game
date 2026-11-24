@@ -45,6 +45,7 @@ let LINES = {
   black_close: '布莱克，请闭眼。',
   dawn: '天亮了。所有人，请睁眼。晚宴……开始。',
   ring_curse: '诅咒戒指……发作了。',
+  snow_fell: '白雪公主……倒下了。晚宴，到此结束。女王阵营，获胜。',
 };
 let loaded = false;
 let muted = false;

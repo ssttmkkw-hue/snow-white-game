@@ -150,6 +150,7 @@ export class Room {
       await this.waitAcks(g, T.ack);
     }
     if (this.game !== g) return;
+    if (st.phase === 'over') return this.endGame(g);   // 白雪提前倒下：晚宴直接结束，不用结算
     await this.settle(g);
   }
 

@@ -31,7 +31,7 @@ function savedSpeed() { try { return localStorage.getItem('pa-ai-fast') === '1' 
 // ---------------- 开始 ----------------
 $('#count-pick').innerHTML = `<button class="on" disabled>8 人</button>`;
 $('#count-pick').style.gridTemplateColumns = '1fr';
-$('#setup-desc').textContent = '你与 7 名林中访客同席。本局有 4 颗毒苹果、28 张故事牌。';
+$('#setup-desc').textContent = '你与 7 名林中访客同席。本局有 4 颗毒苹果、30 张故事牌。';
 $('#btn-start').onclick = startGame;
 $('#btn-online').onclick = enterOnline;
 $('#btn-rules').onclick = showRules;
@@ -563,6 +563,7 @@ async function loop() {
   if (st !== game) return;
   render();
   if (st.phase === 'settle') settle();
+  else if (st.phase === 'over' && st.result?.early) earlyEnd();
 }
 
 async function step(seat) {
@@ -657,10 +658,10 @@ async function present(seat, a, evStart, finalBefore) {
   }
   ui.hidePref = null;
   // 裁判报牌堆：只剩最后一张时提醒；最后一张被抽走后，等那个人把这回合做完，再宣布“每人最后一次机会”
-  if (st === game && !isFinal(st) && st.deck.length === 1 && !ui.saidLastCard && !st.pending && st.turn !== seat) {
+  if (st === game && st.phase === 'play' && !isFinal(st) && st.deck.length === 1 && !ui.saidLastCard && !st.pending && st.turn !== seat) {
     ui.saidLastCard = true; $('#news').innerHTML = lineText('last_card'); await voice('last_card'); await sleep(400);
   }
-  if (st === game && isFinal(st) && !ui.saidFinal && !st.pending && st.turn !== seat) {
+  if (st === game && st.phase === 'play' && isFinal(st) && !ui.saidFinal && !st.pending && st.turn !== seat) {
     ui.saidFinal = true; $('#news').innerHTML = lineText('final_round'); await voice('final_round'); await sleep(400);
   }
   for (const e of evs) if (e.k === 'ringDeath' && st === game) await presentRingDeath(e.seat, game, e.via);
@@ -774,6 +775,31 @@ async function settle() {
   showResult();
 }
 
+// 白雪公主在晚宴前就倒下了（毒梳子 / 诅咒戒指）：不用再玩下去，交代清楚后直接进结果
+async function earlyEnd() {
+  const game = st, e = st.result.early, s = e.seat;
+  const who = isMe(s) ? '你' : st.players[s].name;
+  const how = e.cause === 'comb'
+    ? `被${e.by == null ? '' : isMe(e.by) ? '你的' : ` ${nmS(e.by)} 的`}毒梳子刺中`
+    : '最后的回合里手上还攥着诅咒戒指，被诅咒夺走了性命';
+  ui.bubbles = {};
+  ui.nightGlow = { seats: [s] };
+  ui.reveal.roles = true; ui.reveal.apples = true; ui.dead = st.result.dead;
+  $('#news').innerHTML = '👸 白雪公主倒下了，晚宴提前结束！';
+  overlay(`<div class="scene-seal">${art('snow')}</div><h2>白雪公主倒下了</h2>
+    <p>${who}就是白雪公主，${how}……<br>晚宴不必再继续了，<b>女王阵营获胜</b>。</p>`, true, posFor(s));
+  render();
+  const k = Math.max(ui.speed, 0.6), t0 = Date.now();
+  await voice('snow_fell');
+  if (st !== game) return;
+  await sleep(Math.max(4500 * k - (Date.now() - t0), 1500 * k));
+  if (st !== game) return;
+  ui.nightGlow = null; ui.reveal.final = true; render();
+  await sleep(600);
+  if (st !== game) return;
+  showResult();
+}
+
 // 白雪吃了毒苹果、但手里有【啊，是王子大人】：单独交代一下，桌上的王子牌翻开，她再醒过来
 async function presentPrince(s, game) {
   const who = isMe(s) ? '你' : st.players[s].name;
@@ -803,7 +829,8 @@ function showResult() {
       ${art(p.role, 'result-portrait')}<span class="grow">${nmS(p.seat)} · ${role.name}</span><span>${fate}</span>${r.winners.includes(p.seat) ? '🏆' : ''}</div>`;
   }).join('');
   const title = r.winner === 'rose' ? '罗泽独自获胜' : TEAMS[r.winner] + '获胜';
-  const sub = r.winner === 'queen' ? '白雪公主倒在了餐桌上……' : r.winner === 'rose' ? '白雪公主和罗泽都活了下来——罗泽独占了胜利！' : '白雪公主平安吃完了晚餐，罗泽没能活下来。';
+  const sub = r.early ? (r.early.cause === 'comb' ? '白雪公主被毒梳子刺中，晚宴提前结束……' : '白雪公主被诅咒戒指夺走了性命，晚宴提前结束……')
+    : r.winner === 'queen' ? '白雪公主倒在了餐桌上……' : r.winner === 'rose' ? '白雪公主和罗泽都活了下来——罗泽独占了胜利！' : '白雪公主平安吃完了晚餐，罗泽没能活下来。';
   overlay(`<div class="scene-seal">${art(r.winner === 'rose' ? 'rose' : r.winner === 'queen' ? 'queen' : 'snow')}</div>
     <h2>${title}</h2><p>${sub}</p><p><b>${ui.spect ? '观战结束' : meWin ? '你赢了！' : '你输了。'}</b></p>
     <div class="result-list">${rows}</div>
@@ -868,14 +895,14 @@ function seatInfo(s) {
 function showRules() {
   sheet('规则与角色', `<details class="guide"><summary>查看八人角色喜好与能力表</summary><img src="art/role-guide.png" alt="八人场各角色的喜好、胜利条件和技能"></details>
   <h3>目标</h3><ul><li><b>白雪阵营</b>（白雪、格林、莱特、葛瑞）：白雪公主存活——但若罗泽也活着，则<b>罗泽独胜</b>。</li><li><b>女王阵营</b>（女王、布莱克、奈维）：白雪公主死亡。</li><li><b>罗泽</b>：白雪公主和自己都活着 → 独自获胜，其他人全输。</li></ul>
-  <h3>准备</h3><ul><li>8 人，4 颗毒苹果，28 张故事牌（15 种，固定配比）。每人一张角色卡、一张故事牌、一颗苹果，开局都能看。</li><li>夜晚：格林得知白雪是谁，布莱克得知毒苹果在谁手里。</li></ul>
+  <h3>准备</h3><ul><li>8 人，4 颗毒苹果，30 张故事牌（15 种，固定配比）。每人一张角色卡、一张故事牌、一颗苹果，开局都能看。</li><li>夜晚：格林得知白雪是谁，布莱克得知毒苹果在谁手里。</li></ul>
   <h3>你的回合（5 选 1）</h3><ul>
   <li><b>进行故事</b>：抽 1 张，从手里选 1 张<b>打出</b>或<b>公开弃掉</b>。牌堆空了就直接用手里的。</li>
   <li><b>换故事牌</b>：和一人交换手里的故事牌。</li><li><b>换苹果</b>：和一人交换苹果，谁都不能看。</li>
   <li><b>查苹果</b>：偷看自己现在的苹果。</li><li><b>角色技能</b>：莱特、葛瑞（翻开角色卡发动；已被翻开就不能用）。</li></ul>
   <h3>故事牌</h3><ul>${Object.entries(CARDS).map(([key,c]) => `<li class="entry">${art(key)}<b>${c.name}</b>${c.weapon ? '（武器）' : ''}：${c.desc}</li>`).join('')}</ul>
   <h3>桌面怎么看</h3><ul><li>每人桌前：角色卡（月下森林牌背为隐藏身份，紫色虚线表示私人情报）、苹果（亮红色为未知，笑脸为普通，骷髅为有毒）、手牌背面数、提问卡（<b>竖放=喜欢，横放=不喜欢</b>）。</li><li>🪢被绑（跳过下回合）🛡️葛瑞守护 🪮被杀害 🤥你抓到他撒谎。</li></ul>
-  <h3>结束</h3><ul><li>牌堆空了以后，所有人再各行动一次（最后的回合）。轮到某人时他手上还是【诅咒戒指】，就当场被诅咒而死，不能行动。</li><li>女王最先公开身份和苹果；若是毒苹果，可以指定一人吃下。</li><li>所有人翻开：持毒苹果的、被毒梳子杀害的、手里还攥着诅咒戒指的都会死。白雪若持【啊，是王子大人】且死于毒苹果则复活。</li></ul>
+  <h3>结束</h3><ul><li>白雪公主在晚宴前就倒下了（被毒梳子刺中，或最后的回合还攥着诅咒戒指）→ 晚宴立刻结束，女王阵营获胜。</li><li>牌堆空了以后，所有人再各行动一次（最后的回合）。轮到某人时他手上还是【诅咒戒指】，就当场被诅咒而死，不能行动。</li><li>女王最先公开身份和苹果；若是毒苹果，可以指定一人吃下。</li><li>所有人翻开：持毒苹果的、被毒梳子杀害的、手里还攥着诅咒戒指的都会死。白雪若持【啊，是王子大人】且死于毒苹果则复活。</li></ul>
   <h3>发言</h3><ul><li>每回合行动前免费说一句，可以说谎。AI 会对照自己看到的来判断信不信你。</li></ul>
   <h3>角色</h3><ul>${Object.entries(ROLES).map(([key,r]) => `<li class="entry">${art(key)}<b>${r.name}</b>（${TEAMS[r.team]}，喜好${FOOD[r.food]}）：${r.desc}</li>`).join('')}</ul>`);
 }
@@ -958,6 +985,7 @@ async function onlineGame(m) {
   render();
   if (st.phase === 'play' && st.pending?.mode === 'answer' && st.pending.seat === ME && !ui.spect) askNavy();
   if (st.phase === 'settle') await settle();
+  else if (st.phase === 'over' && st.result?.early) await earlyEnd();
 }
 
 window.__pa = {
