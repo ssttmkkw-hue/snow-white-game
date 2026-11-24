@@ -31,7 +31,7 @@ function savedSpeed() { try { return localStorage.getItem('pa-ai-fast') === '1' 
 // ---------------- 开始 ----------------
 $('#count-pick').innerHTML = `<button class="on" disabled>8 人</button>`;
 $('#count-pick').style.gridTemplateColumns = '1fr';
-$('#setup-desc').textContent = '你与 7 名林中访客同席。本局有 4 颗毒苹果、30 张故事牌。';
+$('#setup-desc').textContent = '你与 7 名林中访客同席。本局有 4 颗毒苹果、29 张故事牌。';
 $('#btn-start').onclick = startGame;
 $('#btn-online').onclick = enterOnline;
 $('#btn-rules').onclick = showRules;
@@ -895,7 +895,7 @@ function seatInfo(s) {
 function showRules() {
   sheet('规则与角色', `<details class="guide"><summary>查看八人角色喜好与能力表</summary><img src="art/role-guide.png" alt="八人场各角色的喜好、胜利条件和技能"></details>
   <h3>目标</h3><ul><li><b>白雪阵营</b>（白雪、格林、莱特、葛瑞）：白雪公主存活——但若罗泽也活着，则<b>罗泽独胜</b>。</li><li><b>女王阵营</b>（女王、布莱克、奈维）：白雪公主死亡。</li><li><b>罗泽</b>：白雪公主和自己都活着 → 独自获胜，其他人全输。</li></ul>
-  <h3>准备</h3><ul><li>8 人，4 颗毒苹果，30 张故事牌（15 种，固定配比）。每人一张角色卡、一张故事牌、一颗苹果，开局都能看。</li><li>夜晚：格林得知白雪是谁，布莱克得知毒苹果在谁手里。</li></ul>
+  <h3>准备</h3><ul><li>8 人，4 颗毒苹果，29 张故事牌（15 种，固定配比）。每人一张角色卡、一张故事牌、一颗苹果，开局都能看。</li><li>夜晚：格林得知白雪是谁，布莱克得知毒苹果在谁手里。</li></ul>
   <h3>你的回合（5 选 1）</h3><ul>
   <li><b>进行故事</b>：抽 1 张，从手里选 1 张<b>打出</b>或<b>公开弃掉</b>。牌堆空了就直接用手里的。</li>
   <li><b>换故事牌</b>：和一人交换手里的故事牌。</li><li><b>换苹果</b>：和一人交换苹果，谁都不能看。</li>

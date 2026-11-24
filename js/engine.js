@@ -44,10 +44,10 @@ export const CARDS = {
 };
 export const cardName = c => CARDS[c].short || CARDS[c].name;
 
-// 8 人局：故事卡固定 30 张（用户 2026-11-23 定的配比；11-24 加 1 张“你喜欢苹果吗？”、1 张“今天要做些什么好呢”）
+// 8 人局：故事卡固定 29 张（用户 2026-11-23 定的配比；11-24 加 1 张“今天要做些什么好呢”。试过苹果提问 4 张，白雪太难活，改回 3 张）
 export const SETUPS = {
   8: { roles: ['snow', 'green', 'light', 'grey', 'queen', 'black', 'navy', 'rose'], poison: 4,
-       deck: { mirror: 2, truth: 1, likeApple: 4, likeShroom: 4, roulette: 2, roulette2: 1, knife: 1,
+       deck: { mirror: 2, truth: 1, likeApple: 3, likeShroom: 4, roulette: 2, roulette2: 1, knife: 1,
                itadaki: 3, plan: 3, rope: 3, baton: 1, comb: 1, dodge: 2, ring: 1, prince: 1 } },
 };
 
