@@ -112,9 +112,9 @@ function teamValue(st, v, pz, map) {
     const s = p.seat, z = pz(map[s]);
     const d = s === v ? { [my]: 1 } : roleDist(st, v, s);
     const ps = d.snow || 0, pr = d.rose || 0, pq = d.queen || 0;
-    if (sd === 'snow') u += ps * (1 - z) + pr * z * 0.6 - pq * z * 0.35;
-    else if (sd === 'queen') u += ps * z + pq * z * 0.35;
-    else u += ps * (1 - z) + (s === v ? (1 - z) * 1.2 : 0) - pq * z * 0.35;
+    if (sd === 'snow') u += ps * (1 - z) + pr * z * 0.6 - pq * z * 0.8;          // 女王结尾手里有毒很危险：她会指定人吃
+    else if (sd === 'queen') u += ps * z + pq * z * 0.2;
+    else u += ps * (1 - z) + (s === v ? (1 - z) * 1.2 : 0) - pq * z * 0.6;
   }
   return u;
 }
@@ -414,7 +414,7 @@ export function aiStep(st, v) {
   if (me.hand.includes('prince') && sd === 'snow' && my !== 'snow' && sw >= 0 && sw !== v && can(st, v, sw) && (my === 'green' || snowP(st, v, sw) > 0.5)) {
     if (!st.players[sw].hand.includes('ring') || !st.handKnow[v][sw]) return { type: 'swapHand', target: sw };
   }
-  const late = isFinal(st) || st.deck.length <= 5;
+  const late = isFinal(st) || st.deck.length <= 9;
   const swSure = sw >= 0 && sw !== v && (my === 'green' || snowP(st, v, sw) > 0.55);
   if (sd === 'snow' && my !== 'snow' && swSure && can(st, v, sw) && !me.hand.includes('ring')) {
     // 有人（不是确定的自己人）刚和白雪换过手牌 → 白雪可能拿到了诅咒戒指，接过来
@@ -455,7 +455,8 @@ export function aiStep(st, v) {
         const hardNormal = normalAt.filter(s => known(st, v, s) === 'normal');
         if (hardNormal.length) return { type: 'swapApple', target: hardNormal.sort((a, b) => queenP(st, v, b) - queenP(st, v, a))[0] };
       }
-      if (known(st, v, v) === undefined && rand() < 0.7) return { type: 'peekOwn' };
+      // 快到最后一轮了还不知道自己手里是什么（苹果可能被换过）→ 一定再看一眼，最后一轮就来不及了
+      if (known(st, v, v) === undefined && (late || rand() < 0.7)) return { type: 'peekOwn' };
       if (my === 'snow' || sw < 0) return fallback();
     }
     // 护驾：白雪手里是毒苹果 → 换过来自己吃
@@ -506,7 +507,11 @@ export function aiStep(st, v) {
 
 export function aiQueenTarget(st) {
   const q = queenSeat(st);
-  return best(st, q, snowP);
+  // 不总是挑“最像白雪”的那一个：按可能性加权随机（拿不准时会在两三个人之间犹豫、也会猜错，更像真人）
+  const cand = others(st, q).filter(s => !st.players[s].killed).map(s => [s, Math.pow(snowP(st, q, s) + 0.02, 1.5)]);
+  let r = rand() * cand.reduce((a, [, w]) => a + w, 0);
+  for (const [s, w] of cand) if ((r -= w) <= 0) return s;
+  return cand[cand.length - 1]?.[0] ?? best(st, q, snowP);
 }
 
 export function viewFor(st, v) {

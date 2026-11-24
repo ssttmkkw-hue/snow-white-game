@@ -24,7 +24,9 @@ const AIS = [
 
 let st = null;
 let ui = fresh();
-function fresh() { return { sel: null, target: null, busy: false, evSeen: 0, bubbles: {}, reveal: { roles: false, apples: false, final: false }, dead: null, speed: 1, arr: null }; }
+function fresh() { return { sel: null, target: null, busy: false, evSeen: 0, bubbles: {}, reveal: { roles: false, apples: false, final: false }, dead: null, speed: savedSpeed(), arr: null }; }
+// AI 快速模式：菜单里的开关，记在本机，下一局也生效（联机时节奏由服务器定，不用这个）
+function savedSpeed() { try { return localStorage.getItem('pa-ai-fast') === '1' ? 0.4 : 1; } catch { return 1; } }
 
 // ---------------- 开始 ----------------
 $('#count-pick').innerHTML = `<button class="on" disabled>8 人</button>`;
@@ -419,17 +421,21 @@ $('#btn-chart').onclick = () => {
   document.querySelector('.sheet-body').classList.add('tall');
 };
 $('#btn-menu').onclick = () => {
-  sheet('菜单', `<div class="menu-list">
+  // 设置用开关：点了马上生效，菜单不关；其余是一次性的按钮
+  const sw = (id, label, sub, on) => `<label class="setting"><span>${label}<small>${sub}</small></span><input type="checkbox" class="switch" id="${id}" ${on ? 'checked' : ''}></label>`;
+  sheet('菜单', `<div class="setting-list">
+    ${sw('m-voice', '🔊 语音', '裁判和 AI 角色的配音；关掉后仍有字幕', !isMuted())}
+    ${online.isOnline() ? '' : sw('m-speed', '⏩ AI 快速模式', 'AI 行动之间的停顿缩短', ui.speed !== 1)}
+  </div>
+  <div class="menu-list">
     <button class="btn" id="m-rules">📘 规则说明</button>
     <button class="btn" id="m-deck">🃏 本局牌堆构成</button>
-    <button class="btn" id="m-voice">${isMuted() ? '🔇 裁判语音：关' : '🔊 裁判语音：开'}</button>
-    ${online.isOnline() ? '' : `<button class="btn" id="m-speed">⏩ AI 速度：${ui.speed === 1 ? '正常' : '快'}</button>
-    <button class="btn" id="m-restart">🔁 重新开一局</button>`}
+    ${online.isOnline() ? '' : '<button class="btn" id="m-restart">🔁 重新开一局</button>'}
     <button class="btn ghost" id="m-home">${online.isOnline() ? '🚪 离开房间' : '🏠 返回首页'}</button></div>`);
+  $('#m-voice').onchange = e => setMuted(!e.target.checked);
+  if ($('#m-speed')) $('#m-speed').onchange = e => { ui.speed = e.target.checked ? 0.4 : 1; try { localStorage.setItem('pa-ai-fast', e.target.checked ? '1' : '0'); } catch {} };
   $('#m-rules').onclick = showRules;
   $('#m-deck').onclick = () => sheet(`🃏 故事牌 ${Object.values(st.deckCounts).reduce((a, b) => a + b, 0)} 张`, `<ul>${Object.entries(st.deckCounts).map(([k, v]) => `<li class="entry">${art(k)} ${CARDS[k].name} × ${v}</li>`).join('')}</ul><p class="hint">固定配比，每局洗混。</p>`);
-  $('#m-voice').onclick = () => { setMuted(!isMuted()); closeSheet(); toast(isMuted() ? '裁判语音已关闭（仍会显示字幕）' : '裁判语音已打开'); };
-  if ($('#m-speed')) $('#m-speed').onclick = () => { ui.speed = ui.speed === 1 ? 0.4 : 1; closeSheet(); };
   if ($('#m-restart')) $('#m-restart').onclick = () => { closeSheet(); voiceStop(); startGame(); };
   $('#m-home').onclick = () => {
     closeSheet();
