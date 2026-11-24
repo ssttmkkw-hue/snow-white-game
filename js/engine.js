@@ -574,7 +574,7 @@ export function settleFinish(st) {
   st.phase = 'over';
   log(st, '“我开动了！” 所有人同时咬下苹果……', 'all', 'warn');
   P.forEach(p => { if (ringDeath[p.seat]) log(st, `💍 ${p.name} 手里还攥着诅咒戒指……倒下了。`, 'all', 'warn'); });
-  if (revived) log(st, `🤴 “啊，是王子大人！”白雪公主被吻醒了！`, 'all', 'warn');
+  if (revived) log(st, `🤴 ${P[sw].name} 亮出【啊，是王子大人】——白雪公主吃下毒苹果，又被王子吻醒了！`, 'all', 'warn');
   log(st, `🏆 ${winner === 'rose' ? '罗泽独自获胜！' : TEAMS[winner] + '获胜！'}`, 'all', 'win');
   return st.result;
 }

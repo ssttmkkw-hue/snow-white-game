@@ -387,3 +387,8 @@ h1 { margin: 6px 0 0; font-size: 34px; letter-spacing: 6px; color: var(--gold); 
 .switch:checked { background: var(--gold); border-color: var(--gold); }
 .switch:checked::after { transform: translateX(20px); }
 .switch:focus-visible { outline: 2px solid #ffe0a2; outline-offset: 2px; }
+
+/* 结算 / 戒指 / 王子这类不挡操作的提示卡：默认放在下方（盖住底栏，不挡长桌）；当事人是坐在下方的“你”时放到上方 */
+.overlay.pass { justify-content: flex-end; padding-top: 0; padding-bottom: calc(10px + var(--safe-b)); }
+.overlay.pass.at-top { justify-content: flex-start; padding-top: 70px; padding-bottom: 0; }
+.overlay.pass .ov-card { gap: 8px; padding: 12px 14px; }

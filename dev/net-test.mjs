@@ -23,7 +23,7 @@ function audit(who, seat, v, allRoles = false) {
   check(v.deck.every(c => c === null), `${who}: 牌堆内容泄露`);
   for (const p of v.players) {
     if (p.seat !== seat) {
-      check(p.hand.every(c => c === null || (c === 'ring' && p.killedBy === 'ring')), `${who}: 看到了 ${p.name} 的手牌`);
+      check(p.hand.every(c => c === null || (c === 'ring' && (p.killedBy === 'ring' || v.result?.ringDeath?.[p.seat])) || (c === 'prince' && v.result?.revived && p.role === 'snow')), `${who}: 看到了 ${p.name} 的手牌`);
       if (p.role && !allRoles) check(p.roleUp || v.roleKnow[seat]?.[p.seat] || v.phase === 'over', `${who}: 看到了 ${p.name} 的身份`);
     }
   }

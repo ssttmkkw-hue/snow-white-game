@@ -12,8 +12,12 @@ export function redact(st, seat, handIdOf, { allRoles = false } = {}) {
     const roleSeen = allRoles || p.roleUp || p.seat === me || (me !== null && !!st.roleKnow[me][p.seat]);
     let hand;
     if (p.seat === me) hand = p.hand.slice();
-    else if (p.killedBy === 'ring') hand = p.hand.map(c => (c === 'ring' ? 'ring' : null));   // 被诅咒而死：戒指已经亮在桌上
-    else hand = p.hand.map(() => null);
+    else {
+      // 已经生效、亮在桌上的牌：被诅咒而死 / 结尾还攥着的戒指；把白雪吻醒的王子大人
+      const ringUp = p.killedBy === 'ring' || !!st.result?.ringDeath?.[p.seat];
+      const princeUp = !!st.result?.revived && p.role === 'snow';
+      hand = p.hand.map(c => ((c === 'ring' && ringUp) || (c === 'prince' && princeUp) ? c : null));
+    }
     return {
       seat: p.seat, name: p.name, human: p.human, avatar: p.avatar, gender: p.gender, voice: p.voice,
       role: roleSeen ? p.role : null, roleUp: p.roleUp, used: p.used,

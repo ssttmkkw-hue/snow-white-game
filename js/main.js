@@ -141,6 +141,13 @@ function seatClasses(s, forSpot) {
   return c.join(' ');
 }
 const ringShown = s => st.players[s].killedBy === 'ring' && !ui.hideRing?.has(s);   // 被戒指咒死、且已经演出过
+// 已经生效、要正面朝上摆在桌前的手牌：诅咒戒指（被咒死 / 结尾还攥着）、啊，是王子大人（白雪被吻醒）
+function cardsUp(s) {
+  const p = st.players[s], up = [];
+  if (ringShown(s) || (ui.reveal.apples && st.result?.ringDeath?.[s])) up.push('ring');
+  if (ui.princeShown && st.result?.revived && p.role === 'snow') up.push('prince');
+  return up;
+}
 const isDead = s => (st.players[s].killed && !ui.hideRing?.has(s)) || !!(ui.dead && ui.dead[s]);
 
 function avatarHTML(s) {
@@ -149,7 +156,9 @@ function avatarHTML(s) {
   const stt = [];
   if (p.roped) stt.push('🪢');
   if (p.warded) stt.push('🛡️');
-  if (ringShown(s)) stt.push('💍');
+  const ups = cardsUp(s);
+  if (ups.includes('ring')) stt.push('💍');
+  if (ups.includes('prince')) stt.push('🤴');
   if (!isMe(s) && !ui.spect && !ui.reveal.roles && liesCaught(st, ME, s) > 0) stt.push('🤥');
   const bub = ui.bubbles[s];
   return `<div class="av side-${sideOf(k)} ${seatClasses(s)}" data-seat="${s}" style="grid-area:${AV[k]}">
@@ -186,8 +195,10 @@ function spotHTML(s) {
     ${appleArt(visibleKind)}
   </div>`;
   const n = Math.min(p.hand.length, 4);
-  const ringUp = ringShown(s) ? p.hand.indexOf('ring') : -1;   // 被诅咒而死：那张戒指正面朝上摆在桌前
-  const hand = n ? `<div class="fan" data-hand="${p.hid ?? handId(p.hand)}" title="${ringUp >= 0 ? '手上的是【诅咒戒指】，被诅咒而死' : `手牌 ${p.hand.length} 张`}">${Array.from({ length: n }, (_, i) => `<i style="transform:rotate(${(i - (n - 1) / 2) * 14}deg)${i === ringUp ? ";background-image:url('art/ring.webp')" : ''}"></i>`).join('')}</div>` : '';
+  const ups = cardsUp(s), upAt = {};   // 生效的牌正面朝上（排到前面，保证扇形里看得到）
+  ups.forEach((c, j) => { if (p.hand.includes(c)) upAt[j] = c; });
+  const upTitle = ups.map(c => (c === 'ring' ? '手上的是【诅咒戒指】，被诅咒而死' : '亮出【啊，是王子大人】，被王子吻醒')).join('；');
+  const hand = n ? `<div class="fan" data-hand="${p.hid ?? handId(p.hand)}" title="${upTitle || `手牌 ${p.hand.length} 张`}">${Array.from({ length: n }, (_, i) => `<i style="transform:rotate(${(i - (n - 1) / 2) * 14}deg)${upAt[i] ? `;background-image:url('art/${upAt[i]}.webp')` : ''}"></i>`).join('')}</div>` : '';
   const prefs = p.prefs.filter((x, i) => !(ui.hidePref && ui.hidePref.seat === s && i === p.prefs.length - 1)).map(x => `<div class="tc pref ${x.yes ? 'yes' : 'no'}" title="你喜欢${FOOD[x.q]}吗？${x.yes ? '竖放：喜欢' : '横放：不喜欢'}"><span>${art(x.q === 'apple' ? 'likeApple' : 'likeShroom')}</span><b>?</b></div>`).join('');
   return `<div class="spot side-${sideOf(k)} ${seatClasses(s, true)}" data-seat="${s}" style="grid-area:${SP[k]}">
     <div class="spin${SPIN_SIDE[sideOf(k)] ? ' spin-side' : ''}" data-rot="${SPIN[sideOf(k)]}" data-sc="${SPIN_SIDE[sideOf(k)] || 1}" style="transform:${SPIN_SIDE[sideOf(k)] ? 'translate(-50%,-50%) ' : ''}rotate(${SPIN[sideOf(k)]}deg)${SPIN_SIDE[sideOf(k)] ? ` scale(${SPIN_SIDE[sideOf(k)]})` : ''}">
@@ -543,6 +554,7 @@ async function loop() {
       if (st.turn === ME) break;
       await sleep(1100 * ui.speed);
       if (st !== game) return;
+      if (st.phase !== 'play' || st.turn < 0) break;
       await step(st.turn);
     }
   } finally { if (st === game) ui.busy = false; }
@@ -662,7 +674,7 @@ async function presentRingDeath(s, game, via) {
   ui.bubbles = { [s]: '💍 被诅咒而死……' };
   $('#news').innerHTML = `💍 ${who}手上的是【诅咒戒指】，被诅咒而死！`;
   overlay(`<div class="scene-seal">${art('ring')}</div><h2>${who}被诅咒而死</h2>
-    <p>${via === 'baton' ? `最后的回合里${who}接棒时` : `最后的回合轮到${who}时`}，手上还攥着【诅咒戒指】……<br>${who}倒下了，不能再行动。</p>`, true);
+    <p>${via === 'baton' ? `最后的回合里${who}接棒时` : `最后的回合轮到${who}时`}，手上还攥着【诅咒戒指】……<br>${who}倒下了，不能再行动。</p>`, true, posFor(s));
   render();
   // 裁判：“诅咒戒指……发作了。”念完再多停一会儿；整段至少 4.2 秒（快速模式按比例缩短）
   const k = Math.max(ui.speed, 0.6), t0 = Date.now();
@@ -729,7 +741,7 @@ async function settle() {
   }
   const qp = st.players[q];
   overlay(`<div class="scene-seal">${art('queen')}</div><h2>${isMe(q) ? '你' : qp.name} 是女王！</h2>
-    <p>${qp.killed ? '可惜她已经被杀害，无法行动。' : target != null ? `她手里是 ☠️ 毒苹果……<br>她命令 <b>${nmS(target)}</b> 吃下去！` : `她手里是${queenCanGive(st) ? '毒苹果，但没有送出' : '一颗普通苹果'}。`}</p>`, true);
+    <p>${qp.killed ? '可惜她已经被杀害，无法行动。' : target != null ? `她手里是 ☠️ 毒苹果……<br>她命令 <b>${nmS(target)}</b> 吃下去！` : `她手里是${queenCanGive(st) ? '毒苹果，但没有送出' : '一颗普通苹果'}。`}</p>`, true, posFor(q));
   render();
   if (qp.killed) await voice('queen_dead');
   else if (!qp.human) {
@@ -747,14 +759,36 @@ async function settle() {
   if (R) st = game = R.final; else settleFinish(st);
   overlay(`<h2>“我开动了！”</h2><p>所有人一起咬下苹果……</p>`, true);
   await sleep(1300);
-  ui.reveal.apples = true; ui.dead = st.result.dead; render();
+  const sw = st.players.findIndex(p => p.role === 'snow');
+  const dead = st.result.dead.slice();
+  if (st.result.revived) dead[sw] = true;   // 先跟着倒下，再被王子吻醒
+  ui.reveal.apples = true; ui.dead = dead; render();
   await sleep(1800);
   if (st !== game) return;
-  if (st.result.revived) { await voice('prince'); if (st !== game) return; }
+  if (st.result.revived) { await presentPrince(sw, game); if (st !== game) return; }
   ui.reveal.final = true; render();
   await voice(st.result.winner === 'queen' ? 'win_queen' : st.result.winner === 'rose' ? 'win_rose' : 'win_snow');
   if (st !== game) return;
   showResult();
+}
+
+// 白雪吃了毒苹果、但手里有【啊，是王子大人】：单独交代一下，桌上的王子牌翻开，她再醒过来
+async function presentPrince(s, game) {
+  const who = isMe(s) ? '你' : st.players[s].name;
+  ui.princeShown = true;
+  ui.nightGlow = { seats: [s] };
+  ui.bubbles = { [s]: '🤴 啊，是王子大人！' };
+  $('#news').innerHTML = `🤴 ${who}亮出【啊，是王子大人】，白雪公主被吻醒了！`;
+  overlay(`<div class="scene-seal">${art('prince')}</div><h2>啊，是王子大人！</h2>
+    <p>白雪公主${who === '你' ? '（你）' : ' ' + who + ' '}吃下了毒苹果……<br>可${who}手里握着【啊，是王子大人】，被王子吻醒了！</p>`, true, posFor(s));
+  render();
+  const k = Math.max(ui.speed, 0.6), t0 = Date.now();
+  await voice('prince');
+  if (st !== game) return;
+  ui.dead = st.result.dead; render();   // 醒过来
+  await sleep(Math.max(4200 * k - (Date.now() - t0), 1500 * k));
+  if (st !== game) return;
+  ui.nightGlow = null; ui.bubbles = {}; render();
 }
 
 function showResult() {
@@ -778,9 +812,10 @@ function showResult() {
 }
 
 // ---------------- 弹层工具 ----------------
-function overlay(html, pass = false) {
+const posFor = s => ((s - ME + st.n) % st.n === 0 ? 'top' : 'bottom');
+function overlay(html, pass = false, pos = 'bottom') {
   const o = $('#overlay');
-  o.className = 'overlay' + (pass ? ' pass' : '');
+  o.className = 'overlay' + (pass ? ' pass' + (pos === 'top' ? ' at-top' : '') : '');
   o.innerHTML = pass ? `<div class="ov-card">${html}</div>` : html;
 }
 function closeOverlay() { $('#overlay').className = 'overlay hidden'; $('#overlay').innerHTML = ''; }
@@ -927,4 +962,5 @@ window.__pa = {
   get st() { return st; }, ui: () => ui, render,
   async autoMe() { if (st.turn !== ME || ui.busy) return false; let g = 0; while (st.turn === ME && st.phase === 'play' && g++ < 5) { const a = aiStep(st, ME); await doAct(a); if (a.type !== 'say' && !st.pending) break; } return true; },
   fast() { ui.speed = 0.05; },
+  settle() { st.phase = 'settle'; st.turn = -1; return settle(); },   // 调试：直接进结算
 };
