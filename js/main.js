@@ -36,6 +36,8 @@ $('#btn-start').onclick = startGame;
 $('#btn-online').onclick = enterOnline;
 $('#btn-rules').onclick = showRules;
 try { const n = localStorage.getItem('pa-name'); if (n) $('#in-name').value = n; } catch {}
+// 联机服务器（Render）会报自己的版本号：显示在开始页底部，方便确认手机上打开的是不是最新版（纯静态打开时没有）
+fetch('api/version', { cache: 'no-store' }).then(r => (r.ok ? r.json() : null)).then(v => { if (v?.version) $('.foot').textContent = `版本 ${v.version}`; }).catch(() => {});
 
 function startGame() {
   const name = ($('#in-name').value.trim() || '我').slice(0, 8);

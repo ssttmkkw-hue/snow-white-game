@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
+import { execSync } from 'node:child_process';
 import { WebSocketServer } from 'ws';
 import { Room, send } from './server/room.js';
 
@@ -20,10 +21,20 @@ const MIME = {
   '.mp3': 'audio/mpeg', '.opus': 'audio/ogg', '.ogg': 'audio/ogg', '.ico': 'image/x-icon',
 };
 const room = new Room('main');
+// 版本号：Render 部署时取它提供的提交号；本机取 git。开始页底部会显示，方便确认手机上是不是最新版
+const VERSION = (() => {
+  if (process.env.RENDER_GIT_COMMIT) return process.env.RENDER_GIT_COMMIT.slice(0, 7);
+  try { return execSync('git rev-parse --short HEAD', { cwd: ROOT, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim(); } catch { return 'dev'; }
+})();
+const STARTED = new Date();
 
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, 'http://x');
   if (url.pathname === '/health') return res.end('ok');
+  if (url.pathname === '/api/version') {
+    res.setHeader('Content-Type', 'application/json; charset=utf-8'); res.setHeader('Cache-Control', 'no-store');
+    return res.end(JSON.stringify({ version: VERSION, started: STARTED.toISOString() }));
+  }
   if (url.pathname === '/api/room') {
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     const info = room.lobbyInfo();
