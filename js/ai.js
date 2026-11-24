@@ -72,6 +72,54 @@ function best(st, v, fn, filter = () => true) {
 const snowGuess = (st, v) => (roleOf(st, v) === 'snow' ? v : best(st, v, snowP));
 const hasDodge = (st, v, s) => !!st.handKnow[v][s]?.cards?.includes('dodge');
 
+// ---------- 最后一轮：这是不是我最后一次行动 ----------
+// 最后一轮里每人只剩一次行动，只有自己知道的情报（偷看苹果、魔镜）已经派不上用场；
+// 这时要挑真正能改变结局的事做：换苹果、杀人、绑住还没行动的人、把关键牌递给白雪……
+export function lastChance(st, v) {
+  if (!isFinal(st)) return false;
+  const base = st.baton ? st.baton.from : st.turn;
+  const left = st.finalTurnsLeft - 1;          // 这一步之后还剩几次行动
+  for (let i = 1; i <= left; i++) if ((base + i) % st.n === v) return false;
+  return true;
+}
+// 这一步之后，最后一轮里还会行动的人
+function actorsAfter(st) {
+  if (!isFinal(st)) return [];
+  const base = st.baton ? st.baton.from : st.turn, out = [];
+  for (let i = 1; i <= st.finalTurnsLeft - 1; i++) { const s = (base + i) % st.n; if (!st.players[s].killed && !out.includes(s)) out.push(s); }
+  return out;
+}
+// v 眼中每颗苹果是毒的概率：看过的就是 0/1；可信的人说过的偏向那边；其余按“剩下的毒苹果 / 剩下没看过的苹果”
+function poisonOdds(st, v) {
+  const kn = st.know[v]; let kp = 0, kc = 0;
+  for (const a of st.apples) if (kn[a.id]) { kc++; if (kn[a.id] === 'poison') kp++; }
+  const prior = Math.min(1, Math.max(0, (st.poison - kp) / Math.max(1, st.n - kc)));
+  return id => {
+    if (kn[id]) return kn[id] === 'poison' ? 1 : 0;
+    let sc = 0;
+    for (const c of st.claims) if (c.type === 'apple' && c.aboutApple === id && c.seat !== v && trusted(st, v, c.seat)) sc += c.value === 'poison' ? 1 : -1;
+    return sc > 0 ? Math.max(prior, 0.8) : sc < 0 ? Math.min(prior, 0.2) : prior;
+  };
+}
+// 按 v 的阵营给“谁手里是哪颗苹果”打分（map: 座位 → 苹果 id）。只看结尾咬苹果这一刻：
+//   白雪阵营：白雪别吃到毒（最重要）、罗泽吃到毒、女王手里别有毒（她会指定人吃）
+//   女王阵营：白雪吃到毒、女王手里有毒；罗泽：白雪和自己都别吃到毒
+function teamValue(st, v, pz, map) {
+  const my = roleOf(st, v), sd = side(st, v);
+  let u = 0;
+  for (const p of st.players) {
+    if (p.killed) continue;
+    const s = p.seat, z = pz(map[s]);
+    const d = s === v ? { [my]: 1 } : roleDist(st, v, s);
+    const ps = d.snow || 0, pr = d.rose || 0, pq = d.queen || 0;
+    if (sd === 'snow') u += ps * (1 - z) + pr * z * 0.6 - pq * z * 0.35;
+    else if (sd === 'queen') u += ps * z + pq * z * 0.35;
+    else u += ps * (1 - z) + (s === v ? (1 - z) * 1.2 : 0) - pq * z * 0.35;
+  }
+  return u;
+}
+const SWAP_W = 12;   // 苹果分差 → 与出牌估值同一量级
+
 // ---------- 出牌评估 ----------
 function rouletteOutcome(st, dir, times = 1) {
   const P = st.players;
@@ -96,6 +144,8 @@ function cardOptions(st, v) {
   const rz = sd === 'snow' && my !== 'rose' ? best(st, v, roseOf, s => tg(s)) : -1;
   const rp = rz >= 0 ? roseP(rz) : 0;
   const huntRose = rp > 0.5;
+  const last = lastChance(st, v), after = last ? actorsAfter(st) : [];
+  const allyAfter = after.some(s => st.roleKnow[v][s] && ROLES[roleOf(st, s)].team === ROLES[my].team) || after.length >= 3;
   const opts = [];
   me.hand.forEach((card, idx) => {
     if (!cardPlayable(st, v, card)) return;
@@ -178,9 +228,33 @@ function cardOptions(st, v) {
       case 'plan': add(st.deck.length ? 3 : 0.2); break;
     }
   });
+  if (last) {
+    const pz = poisonOdds(st, v), map = st.players.map(p => p.apple), base = teamValue(st, v, pz, map);
+    for (const o of opts) {
+      switch (o.card) {
+        case 'mirror': o.value = 0.1; break;                                   // 只有自己知道，用不上了
+        case 'itadaki': case 'plan': o.value = -1; break;                     // 牌堆已空，打了等于没打
+        case 'likeApple': case 'likeShroom': o.value = sd === 'queen' ? o.value : 0.2; break;  // 问出白雪是谁只对女王结尾指人有用
+        case 'rope': if (!after.includes(o.target)) o.value = 0; break;        // 他已经行动过了，绑了也没用
+        case 'knife': o.value = allyAfter ? 1.5 : 0.1; break;                  // 公开苹果，要有人在后面接着利用
+        case 'truth': if (sd !== 'queen' && o.opt === 'queen') o.value = 0.5; break;   // 女王结尾自己会现身
+        case 'baton': if (o.value < 1) o.value = 0.1; break;
+        case 'roulette': case 'roulette2': {
+          const res = rouletteOutcome(st, o.opt, o.card === 'roulette2' ? 2 : 1);
+          const m = map.slice(); for (const [k, id] of Object.entries(res)) m[k] = id;
+          o.value = SWAP_W * (teamValue(st, v, pz, m) - base);
+          break;
+        }
+      }
+    }
+  }
   return opts.sort((a, b) => b.value - a.value);
 }
 function keepVal(st, v, c) {
+  if (lastChance(st, v)) {   // 以后用不上了：只有“留在手里就生效”的牌还有价值
+    const my = roleOf(st, v);
+    return c === 'ring' ? 99 : c === 'dodge' ? 3 : c === 'prince' ? (my === 'snow' ? 10 : 0) : 0;
+  }
   const my = roleOf(st, v), sd = side(st, v);
   switch (c) {
     case 'ring': return 99;
@@ -280,6 +354,37 @@ export function aiSay(st, v) {
   return null;
 }
 
+// 最后一次行动：把所有“真能改变结局”的选项放在一起比，挑最好的；偷看自己的苹果当作“什么都不做”的基准
+function finalMove(st, v) {
+  const me = st.players[v], L = legalMain(st, v), my = roleOf(st, v), sd = side(st, v);
+  const pz = poisonOdds(st, v), map = st.players.map(p => p.apple), base = teamValue(st, v, pz, map);
+  const gain = m => SWAP_W * (teamValue(st, v, pz, m) - base);
+  const ot = others(st, v).filter(s => can(st, v, s) && !st.players[s].killed);
+  const cands = [{ a: { type: 'peekOwn' }, val: 0 }];
+  for (const t of ot) { const m = map.slice(); [m[v], m[t]] = [m[t], m[v]]; cands.push({ a: { type: 'swapApple', target: t }, val: gain(m) }); }
+  if (L.ability && my === 'light') {
+    const pool = [v, ...ot];
+    for (let i = 0; i < pool.length; i++) for (let j = i + 1; j < pool.length; j++) {
+      const m = map.slice(); [m[pool[i]], m[pool[j]]] = [m[pool[j]], m[pool[i]]];
+      cands.push({ a: { type: 'ability', targets: [pool[i], pool[j]] }, val: gain(m) - 0.05 });
+    }
+  }
+  if (L.ability && my === 'grey') cands.push({ a: { type: 'ability' }, val: actorsAfter(st).length ? 0.3 : 0 });   // 护住自己到结尾
+  if (L.story) { const o = cardOptions(st, v)[0]; if (o) cands.push({ a: { type: 'story' }, val: o.value }); }
+  // 手牌：把【哎呀好危险】（挡毒梳子）/【王子大人】（被毒死能复活）递给白雪
+  const sw = snowGuess(st, v);
+  if (sd === 'snow' && my !== 'snow' && L.swapHand && sw >= 0 && sw !== v && can(st, v, sw) && !st.handKnow[v][sw]?.cards?.includes('ring')) {
+    const conf = my === 'green' ? 1 : snowP(st, v, sw);
+    const combLive = !st.discard.includes('comb') && !st.players.some(p => p.killedBy === 'comb');
+    let val = 0;
+    if (me.hand.includes('prince')) val = Math.max(val, 8 * conf * pz(map[sw]));
+    if (me.hand.includes('dodge') && combLive) val = Math.max(val, 2.5 * conf);
+    if (val > 0) cands.push({ a: { type: 'swapHand', target: sw }, val });
+  }
+  cands.sort((a, b) => b.val - a.val || rand() - 0.5);
+  return cands[0].a;
+}
+
 // ---------- 主决策 ----------
 export function aiStep(st, v) {
   if (st.pending?.mode === 'choose') return chooseAfterDraw(st, v);
@@ -303,6 +408,8 @@ export function aiStep(st, v) {
     const t = sd === 'queen' ? best(st, v, snowP, s => can(st, v, s)) : qGuess();
     if (t >= 0 && can(st, v, t)) return { type: 'swapHand', target: t };
   }
+  // 最后一轮、这是我最后一次行动：只做真能改变结局的事
+  if (lastChance(st, v)) return finalMove(st, v);
   // 王子大人：白雪阵营想让白雪拿到
   if (me.hand.includes('prince') && sd === 'snow' && my !== 'snow' && sw >= 0 && sw !== v && can(st, v, sw) && (my === 'green' || snowP(st, v, sw) > 0.5)) {
     if (!st.players[sw].hand.includes('ring') || !st.handKnow[v][sw]) return { type: 'swapHand', target: sw };
