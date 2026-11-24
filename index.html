@@ -15,16 +15,25 @@
     <div class="start-hero">
       
       <h1>林中晚宴</h1>
-      <p class="sub">毒苹果 · 八人身份推理</p>
+      <p class="sub" id="start-sub">毒苹果 · 八人身份推理</p>
     </div>
-    <div class="start-card">
+    <div class="start-card" id="start-main">
       <label class="field">你的名字<input id="in-name" maxlength="8" value="我"></label>
       <div class="field setup-count">人数
         <div id="count-pick" class="seg"></div>
       </div>
       <p id="setup-desc" class="hint"></p>
-      <button id="btn-start" class="btn primary big">入席开饭</button>
+      <button id="btn-start" class="btn primary big">单人开始</button>
+      <button id="btn-online" class="btn big">多人联机</button>
       <button id="btn-rules" class="btn ghost">规则与角色</button>
+    </div>
+    <!-- 联机房间：和开始页同一个画面，只换下面这张卡 -->
+    <div class="start-card lobby-card hidden" id="lobby-card">
+      <div id="lobby-list" class="result-list lobby-list"></div>
+      <p id="lobby-hint" class="hint"></p>
+      <p id="lobby-status" class="hint lobby-status"></p>
+      <button id="btn-lobby-start" class="btn primary big hidden">开始游戏</button>
+      <button id="btn-lobby-leave" class="btn ghost">离开房间</button>
     </div>
     <p class="foot"></p>
   </section>

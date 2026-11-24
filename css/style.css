@@ -369,3 +369,9 @@ h1 { margin: 6px 0 0; font-size: 34px; letter-spacing: 6px; color: var(--gold); 
 .spot .spin.spin-side { position: absolute; left: 50%; top: 50%; transform-origin: center; }
 
 /* 手牌背面、抽牌堆：都用 banquet.css 里的 story-back.webp（绿色森林·金月）；隐藏的角色牌用 role-back.webp（红月） */
+
+/* 联机：房间卡和开始卡在同一个画面（沿用开始页的美术），这里只补布局 */
+.lobby-card > * { grid-column: 1 / -1; }
+.lobby-list { max-height: 38vh; }
+.lobby-row.d { opacity: .55; }
+.lobby-status:empty { display: none; }

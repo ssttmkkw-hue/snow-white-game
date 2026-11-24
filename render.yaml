@@ -1,0 +1,14 @@
+# Render 蓝图：New → Blueprint，选本仓库即可（或打开 README 里的一键部署链接）
+services:
+  - type: web
+    name: snow-white-online
+    runtime: node
+    plan: free            # 免费档：15 分钟没人访问会休眠，再打开约 1 分钟唤醒
+    region: singapore
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"

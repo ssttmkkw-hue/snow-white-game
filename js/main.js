@@ -4,11 +4,13 @@ import {
 } from './engine.js';
 import { aiStep, aiQueenTarget, liesCaught, aiAfterPeek } from './ai.js';
 import { say as voice, stop as voiceStop, loadLines, lineText, isMuted, setMuted, playClip, loadPlayerLines, playerLine, playerUrl } from './narrator.js';
+import * as online from './online.js';
 loadLines();
 
 const $ = s => document.querySelector(s);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-const ME = 0;
+let ME = 0;   // 我的座位：单机固定 0；联机由服务器分配（观战时只用来决定从哪个座位看过去）
+const isMe = s => !ui.spect && s === ME;
 const badges = { '🐰': 'hare', '🐺': 'wolf', '🦌': 'stag', '🙂': 'guest', '🦡': 'badger', '🦦': 'otter', '🐶': 'spotted-pup', '🐈‍⬛': 'black-cat' };
 function art(key, cls = '') {
   return `<img class="illustration ${cls}" src="art/${key}.webp" alt="" draggable="false">`;
@@ -29,6 +31,7 @@ $('#count-pick').innerHTML = `<button class="on" disabled>8 人</button>`;
 $('#count-pick').style.gridTemplateColumns = '1fr';
 $('#setup-desc').textContent = '你与 7 名林中访客同席。本局有 4 颗毒苹果、28 张故事牌。';
 $('#btn-start').onclick = startGame;
+$('#btn-online').onclick = enterOnline;
 $('#btn-rules').onclick = showRules;
 try { const n = localStorage.getItem('pa-name'); if (n) $('#in-name').value = n; } catch {}
 
@@ -105,11 +108,11 @@ async function nightPhase() {
   ui.night = false; ui.hideIntel = {}; ui.nightGlow = null; ui.skipNight = false;
   closeOverlay();
   render();
-  loop();
+  if (ui.nightDone) { const f = ui.nightDone; ui.nightDone = null; f(); } else loop();
 }
 
 // ---------------- 渲染 ----------------
-const nmS = s => (s === ME ? '你' : st.players[s].name);
+const nmS = s => (isMe(s) ? '你' : st.players[s].name);
 function render() {
   if (!st) return;
   $('#st-round').textContent = `第 ${st.round} 轮`;
@@ -127,7 +130,7 @@ const sideOf = k => (k === 0 ? 'b' : k === 4 ? 't' : k < 4 ? 'l' : 'r');
 
 function seatClasses(s, forSpot) {
   const p = st.players[s], c = [];
-  if (s === ME) c.push('me');
+  if (isMe(s)) c.push('me');
   if (!forSpot && st.turn === s && st.phase === 'play' && !ui.night && !ui.ringShow) c.push('turn');   // 当前行动者只点亮名牌
   if (ui.nightGlow?.seats?.includes(s)) c.push('nglow');
   const tg = ui.target;
@@ -145,7 +148,7 @@ function avatarHTML(s) {
   if (p.roped) stt.push('🪢');
   if (p.warded) stt.push('🛡️');
   if (ringShown(s)) stt.push('💍');
-  if (s !== ME && !ui.reveal.roles && liesCaught(st, ME, s) > 0) stt.push('🤥');
+  if (!isMe(s) && !ui.spect && !ui.reveal.roles && liesCaught(st, ME, s) > 0) stt.push('🤥');
   const bub = ui.bubbles[s];
   return `<div class="av side-${sideOf(k)} ${seatClasses(s)}" data-seat="${s}" style="grid-area:${AV[k]}">
     ${bub ? `<div class="bubble">${bub}</div>` : ''}
@@ -163,16 +166,16 @@ function spotHTML(s) {
   const dead = isDead(s);
   // 角色牌：对手隐藏的显示牌背，公开的显示牌面；死亡转灰 + 小骷髅
   const up = p.roleUp || ui.reveal.roles;
-  const iKnow = st.roleKnow[ME][s] && s !== ME && !(ui.hideIntel?.green && st.players[ME].role === 'green');
+  const iKnow = st.roleKnow[ME][s] && !isMe(s) && !(ui.hideIntel?.green && st.players[ME].role === 'green');
   let rc;
-  if (up || s === ME) rc = `<div class="tc rcard up team-${r.team} ${s === ME && !up ? 'mine' : ''} ${dead ? 'dead' : ''}" title="${r.name}">${art(p.role)}<span class="rn">${r.short}</span></div>`;
+  if (up || isMe(s)) rc = `<div class="tc rcard up team-${r.team} ${isMe(s) && !up ? 'mine' : ''} ${dead ? 'dead' : ''}" title="${r.name}">${art(p.role)}<span class="rn">${r.short}</span></div>`;
   else if (iKnow) rc = `<div class="tc rcard priv ${dead ? 'dead' : ''}" title="只有你知道：${r.name}">${art(p.role)}<span class="rn">${r.short}</span></div>`;
   else rc = `<div class="tc rcard back ${dead ? 'dead' : ''}"></div>`;
   if (dead) rc = rc.replace(/<\/div>$/, '<span class="skull">💀</span></div>');
   // 苹果牌（按苹果 id 标记，换位时能滑过去）
   const ap = st.apples[p.apple];
   const apUp = ap.up || ui.reveal.apples;
-  const kn = (ui.hideIntel?.black && st.players[ME].role === 'black' && s !== ME) ? undefined : st.know[ME][ap.id];
+  const kn = (ui.hideIntel?.black && st.players[ME].role === 'black' && !isMe(s)) ? undefined : st.know[ME][ap.id];
   const fl = (ui.flash?.has(s) ? 'flash' : '') + (ui.nightGlow?.apples?.includes(s) ? ' nglow' : '');
   const visibleKind = apUp ? ap.type : (kn || 'back');
   const appleName = visibleKind === 'poison' ? '毒苹果' : '普通苹果';
@@ -182,7 +185,7 @@ function spotHTML(s) {
   </div>`;
   const n = Math.min(p.hand.length, 4);
   const ringUp = ringShown(s) ? p.hand.indexOf('ring') : -1;   // 被诅咒而死：那张戒指正面朝上摆在桌前
-  const hand = n ? `<div class="fan" data-hand="${handId(p.hand)}" title="${ringUp >= 0 ? '手上的是【诅咒戒指】，被诅咒而死' : `手牌 ${p.hand.length} 张`}">${Array.from({ length: n }, (_, i) => `<i style="transform:rotate(${(i - (n - 1) / 2) * 14}deg)${i === ringUp ? ";background-image:url('art/ring.webp')" : ''}"></i>`).join('')}</div>` : '';
+  const hand = n ? `<div class="fan" data-hand="${p.hid ?? handId(p.hand)}" title="${ringUp >= 0 ? '手上的是【诅咒戒指】，被诅咒而死' : `手牌 ${p.hand.length} 张`}">${Array.from({ length: n }, (_, i) => `<i style="transform:rotate(${(i - (n - 1) / 2) * 14}deg)${i === ringUp ? ";background-image:url('art/ring.webp')" : ''}"></i>`).join('')}</div>` : '';
   const prefs = p.prefs.filter((x, i) => !(ui.hidePref && ui.hidePref.seat === s && i === p.prefs.length - 1)).map(x => `<div class="tc pref ${x.yes ? 'yes' : 'no'}" title="你喜欢${FOOD[x.q]}吗？${x.yes ? '竖放：喜欢' : '横放：不喜欢'}"><span>${art(x.q === 'apple' ? 'likeApple' : 'likeShroom')}</span><b>?</b></div>`).join('');
   return `<div class="spot side-${sideOf(k)} ${seatClasses(s, true)}" data-seat="${s}" style="grid-area:${SP[k]}">
     <div class="spin${SPIN_SIDE[sideOf(k)] ? ' spin-side' : ''}" data-rot="${SPIN[sideOf(k)]}" data-sc="${SPIN_SIDE[sideOf(k)] || 1}" style="transform:${SPIN_SIDE[sideOf(k)] ? 'translate(-50%,-50%) ' : ''}rotate(${SPIN[sideOf(k)]}deg)${SPIN_SIDE[sideOf(k)] ? ` scale(${SPIN_SIDE[sideOf(k)]})` : ''}">
@@ -265,6 +268,7 @@ function slideFrom(el, dx, dy, lift, cls) {
 }
 
 function renderMe() {
+  if (ui.spect) { $('#my-hand').innerHTML = '<span class="empty">👀 你在观战（看不到任何人的私密信息）</span>'; return; }
   const p = st.players[ME];
   const r = ROLES[p.role];
   const pd = st.pending;
@@ -284,6 +288,12 @@ function renderActions() {
   const box = $('#actions'), pr = $('#prompt');
   const btn = (a, label, { cls = '', off = false } = {}) => `<button class="act ${cls}" data-a="${a}" ${off ? 'disabled' : ''}>${label}</button>`;
   if (ui.night) { box.innerHTML = btn('log', '记录'); pr.textContent = '🌙 夜晚……听裁判的'; return; }
+  if (ui.spect && !ui.target) {
+    box.innerHTML = btn('log', '记录');
+    const who = st.pending?.mode === 'answer' ? st.players[st.pending.seat] : st.players[st.turn];
+    pr.textContent = st.phase === 'play' && who ? `👀 观战中 · 等待 ${who.name} ……` : st.phase === 'over' ? '👀 观战中 · 晚宴结束' : '👀 观战中';
+    return;
+  }
   if (ui.target) {
     const t = ui.target;
     pr.innerHTML = `${t.label}${t.need > 1 ? `（已选 ${t.picked.length}/${t.need}）` : ''}`;
@@ -293,7 +303,7 @@ function renderActions() {
   if (st.phase !== 'play') { box.innerHTML = btn('log', '记录'); pr.textContent = st.phase === 'over' ? '晚宴结束' : '最后的晚餐……'; return; }
   const pd = st.pending;
   if (pd?.mode === 'answer' && pd.seat === ME) { box.innerHTML = ''; pr.textContent = '有人在问你……'; return; }
-  const mine = st.turn === ME && !ui.busy;
+  const mine = st.turn === ME && !ui.busy && !ui.sent;
   if (pd?.mode === 'arrange' && mine) return renderArrange();
   if (pd?.mode === 'choose' && mine) {
     const c = ui.sel !== null ? st.players[ME].hand[ui.sel] : null;
@@ -340,7 +350,7 @@ $('#actions').addEventListener('click', e => {
   const a = b.dataset.a;
   if (a === 'log') return showLog();
   if (a === 'tgCancel') return ui.target?.cancel?.();
-  if (st.turn !== ME || ui.busy) return;
+  if (st.turn !== ME || ui.busy || ui.spect || ui.sent) return;
   const others1 = (lbl, fn) => pickTargets(1, s => s !== ME && targetable(st, s, ME) && !st.players[s].killed, lbl, ([t]) => fn(t));
   switch (a) {
     case 'talk': return openTalk();
@@ -413,15 +423,19 @@ $('#btn-menu').onclick = () => {
     <button class="btn" id="m-rules">📘 规则说明</button>
     <button class="btn" id="m-deck">🃏 本局牌堆构成</button>
     <button class="btn" id="m-voice">${isMuted() ? '🔇 裁判语音：关' : '🔊 裁判语音：开'}</button>
-    <button class="btn" id="m-speed">⏩ AI 速度：${ui.speed === 1 ? '正常' : '快'}</button>
-    <button class="btn" id="m-restart">🔁 重新开一局</button>
-    <button class="btn ghost" id="m-home">🏠 返回首页</button></div>`);
+    ${online.isOnline() ? '' : `<button class="btn" id="m-speed">⏩ AI 速度：${ui.speed === 1 ? '正常' : '快'}</button>
+    <button class="btn" id="m-restart">🔁 重新开一局</button>`}
+    <button class="btn ghost" id="m-home">${online.isOnline() ? '🚪 离开房间' : '🏠 返回首页'}</button></div>`);
   $('#m-rules').onclick = showRules;
   $('#m-deck').onclick = () => sheet(`🃏 故事牌 ${Object.values(st.deckCounts).reduce((a, b) => a + b, 0)} 张`, `<ul>${Object.entries(st.deckCounts).map(([k, v]) => `<li class="entry">${art(k)} ${CARDS[k].name} × ${v}</li>`).join('')}</ul><p class="hint">固定配比，每局洗混。</p>`);
   $('#m-voice').onclick = () => { setMuted(!isMuted()); closeSheet(); toast(isMuted() ? '裁判语音已关闭（仍会显示字幕）' : '裁判语音已打开'); };
-  $('#m-speed').onclick = () => { ui.speed = ui.speed === 1 ? 0.4 : 1; closeSheet(); };
-  $('#m-restart').onclick = () => { closeSheet(); voiceStop(); startGame(); };
-  $('#m-home').onclick = () => { closeSheet(); st = null; $('#screen-game').classList.add('hidden'); $('#screen-start').classList.remove('hidden'); closeOverlay(); };
+  if ($('#m-speed')) $('#m-speed').onclick = () => { ui.speed = ui.speed === 1 ? 0.4 : 1; closeSheet(); };
+  if ($('#m-restart')) $('#m-restart').onclick = () => { closeSheet(); voiceStop(); startGame(); };
+  $('#m-home').onclick = () => {
+    closeSheet();
+    if (online.isOnline() && !confirm(ui.spect || st?.phase !== 'play' ? '离开房间？' : '离开房间？这一局你的座位会交给 AI 代打。')) return;
+    goHome();
+  };
 };
 
 function pickTargets(need, ok, label, done, opts = {}) {
@@ -435,6 +449,12 @@ function choiceSheet(title, items, fn) {
 
 async function doAct(a) {
   if (ui.busy) return;
+  if (online.isOnline()) {
+    if (ui.sent || ui.spect) return;
+    ui.sent = true; if (a.type !== 'say') ui.sel = null;
+    online.act(a); render();
+    return;
+  }
   const evStart = st.events.length, finalBefore = isFinal(st);
   try {
     const before = st.log.length;
@@ -551,7 +571,7 @@ async function step(seat) {
 const HOLD = { story: 1300, discard: 1800, swapApple: 2300, swapHand: 2000, peekOwn: 2000, ability: 2500, arrange: 1500, say: 1000, answer: 1300,
   play: 1400, silentCard: 2200, afterAnswer: 1600, reveal: 2400, miss: 1600, dodge: 1300, roulette: 2100 };
 const pace = key => sleep((HOLD[key] ?? 1000) * ui.speed);
-const voiceOf = s => (s !== ME ? st.players[s].voice : null);
+const voiceOf = s => (st.players[s].human ? null : st.players[s].voice);   // 真人玩家没有配音
 
 // 让 s 说一句（有语音就念，没有就按字数停一下）；bubble 为 true 时用台词原文当气泡
 async function speak(s, base, { bubble = true, fallback = '' } = {}) {
@@ -569,7 +589,7 @@ const CARD_VOICE = { likeApple: 'card_likeApple', likeShroom: 'card_likeShroom',
 async function present(seat, a, evStart, finalBefore) {
   const game = st;
   const evs = st.events.slice(evStart);
-  const isAI = seat !== ME;
+  const isAI = !st.players[seat].human;
   const say = async (s, base, opts) => (st === game ? speak(s, base, opts) : null);
   switch (a.type) {
     case 'say': {
@@ -629,7 +649,7 @@ async function present(seat, a, evStart, finalBefore) {
 
 // 最后的回合轮到某人时，他手上还是诅咒戒指 → 当场倒下。停久一点，让大家看清发生了什么
 async function presentRingDeath(s, game, via) {
-  const who = s === ME ? '你' : st.players[s].name;
+  const who = isMe(s) ? '你' : st.players[s].name;
   ui.hideRing?.delete(s);
   ui.ringShow = true;
   ui.nightGlow = { seats: [s] };
@@ -660,6 +680,7 @@ function askNavy() {
     <div class="ov-card"><button class="btn" data-ans="1">↕️ 竖放：喜欢${truth ? '（真话）' : ''}</button><button class="btn" data-ans="0">↔️ 横放：不喜欢${!truth ? '（真话）' : ''}</button></div>`);
   document.querySelectorAll('[data-ans]').forEach(b => b.onclick = () => {
     closeOverlay();
+    if (online.isOnline()) { ui.sent = true; online.act({ type: 'answer', yes: b.dataset.ans === '1' }); render(); return; }
     const before = st.log.length;
     const evStart = st.events.length;
     act(st, ME, { type: 'answer', yes: b.dataset.ans === '1' });
@@ -672,30 +693,40 @@ function askNavy() {
 
 // ---------------- 结算演出 ----------------
 async function settle() {
-  const game = st;
+  let game = st;
   render();
   overlay(`<div class="scene-seal">${art('itadaki')}</div><h2>最后的晚餐</h2><p>故事讲完了。女王，请现身吧……</p>`);
   await voice('supper'); await sleep(500);
   if (st !== game) return;
   await voice('queen_call'); await sleep(400);
   if (st !== game) return;
-  const q = queenSeat(st);
-  let target = null;
-  if (queenCanGive(st)) {
-    if (q === ME) {
-      closeOverlay();
-      target = await new Promise(res => {
-        pickTargets(1, s => s !== ME && !st.players[s].killed, '👑 你手里是<b>毒苹果</b>！指定一个人吃下它', ([t]) => res(t), { cancelable: false });
-      });
-    } else target = aiQueenTarget(st);
+  const pickPoison = () => new Promise(res => {
+    pickTargets(1, s => s !== ME && !st.players[s].killed, '👑 你手里是<b>毒苹果</b>！指定一个人吃下它', ([t]) => res(t), { cancelable: false });
+  });
+  let q, target = null, R = null;
+  if (online.isOnline()) {
+    // 我是持毒的女王：服务器会先来问我要指定谁
+    const asked = await Promise.race([online.waitSettled().then(() => false), online.waitQueenAsk()]);
+    if (st !== game) return;
+    if (asked) { closeOverlay(); online.queenPick(await pickPoison()); }
+    R = await online.waitSettled();
+    if (st !== game) return;
+    st = game = R.queen;
+    q = queenSeat(st); target = st.forcedEat ?? null;
+  } else {
+    q = queenSeat(st);
+    if (queenCanGive(st)) {
+      if (q === ME) { closeOverlay(); target = await pickPoison(); }
+      else target = aiQueenTarget(st);
+    }
+    settleQueen(st, target);
   }
-  settleQueen(st, target);
   const qp = st.players[q];
-  overlay(`<div class="scene-seal">${art('queen')}</div><h2>${q === ME ? '你' : qp.name} 是女王！</h2>
+  overlay(`<div class="scene-seal">${art('queen')}</div><h2>${isMe(q) ? '你' : qp.name} 是女王！</h2>
     <p>${qp.killed ? '可惜她已经被杀害，无法行动。' : target != null ? `她手里是 ☠️ 毒苹果……<br>她命令 <b>${nmS(target)}</b> 吃下去！` : `她手里是${queenCanGive(st) ? '毒苹果，但没有送出' : '一颗普通苹果'}。`}</p>`, true);
   render();
   if (qp.killed) await voice('queen_dead');
-  else if (q !== ME) {
+  else if (!qp.human) {
     await speak(q, 'q_reveal'); await sleep(300);
     if (st === game) await speak(q, target != null ? 'q_give' : 'q_nopoison');
   } else await voice(target != null ? 'queen_give' : 'queen_nopoison');
@@ -703,10 +734,11 @@ async function settle() {
   if (st !== game) return;
   ui.bubbles = {};
   ui.reveal.roles = true;
+  if (R) st = game = R.roles;
   overlay(`<h2>所有人翻开角色卡</h2>`, true); render();
   await sleep(1800);
   if (st !== game) return;
-  settleFinish(st);
+  if (R) st = game = R.final; else settleFinish(st);
   overlay(`<h2>“我开动了！”</h2><p>所有人一起咬下苹果……</p>`, true);
   await sleep(1300);
   ui.reveal.apples = true; ui.dead = st.result.dead; render();
@@ -721,7 +753,7 @@ async function settle() {
 
 function showResult() {
   const r = st.result;
-  const meWin = r.winners.includes(ME);
+  const meWin = !ui.spect && r.winners.includes(ME);
   const rows = st.players.map(p => {
     const role = ROLES[p.role];
     const fate = p.killedBy === 'ring' ? '💍 被诅咒而死' : p.killed ? '🪮 被杀害' : r.ringDeath[p.seat] ? '💍 戒指' : r.poisoned[p.seat] ? (st.forcedEat === p.seat ? '👑 被逼吃毒' : '☠️ 中毒') : (p.role === 'snow' && r.revived ? '🤴 复活' : '😋 存活');
@@ -731,10 +763,10 @@ function showResult() {
   const title = r.winner === 'rose' ? '罗泽独自获胜' : TEAMS[r.winner] + '获胜';
   const sub = r.winner === 'queen' ? '白雪公主倒在了餐桌上……' : r.winner === 'rose' ? '白雪公主和罗泽都活了下来——罗泽独占了胜利！' : '白雪公主平安吃完了晚餐，罗泽没能活下来。';
   overlay(`<div class="scene-seal">${art(r.winner === 'rose' ? 'rose' : r.winner === 'queen' ? 'queen' : 'snow')}</div>
-    <h2>${title}</h2><p>${sub}</p><p><b>${meWin ? '你赢了！' : '你输了。'}</b></p>
+    <h2>${title}</h2><p>${sub}</p><p><b>${ui.spect ? '观战结束' : meWin ? '你赢了！' : '你输了。'}</b></p>
     <div class="result-list">${rows}</div>
-    <div style="display:flex;gap:8px;width:100%"><button class="btn" style="flex:1" id="r-log">📖 复盘</button><button class="btn" style="flex:1" id="r-table">👀 看桌面</button><button class="btn primary" style="flex:2" id="r-again">再来一局</button></div>`);
-  $('#r-again').onclick = () => { closeOverlay(); startGame(); };
+    <div style="display:flex;gap:8px;width:100%"><button class="btn" style="flex:1" id="r-log">📖 复盘</button><button class="btn" style="flex:1" id="r-table">👀 看桌面</button><button class="btn primary" style="flex:2" id="r-again">${online.isOnline() ? '回到房间' : '再来一局'}</button></div>`);
+  $('#r-again').onclick = () => { closeOverlay(); if (online.isOnline()) showLobby(); else startGame(); };
   $('#r-log').onclick = showLog;
   $('#r-table').onclick = () => { closeOverlay(); $('#prompt').innerHTML = '<button class="cancel" id="back-res">↩ 回到结果</button>'; $('#back-res').onclick = showResult; };
 }
@@ -771,18 +803,18 @@ function seatInfo(s) {
   const p = st.players[s];
   const lines = [];
   const r = ROLES[p.role];
-  if (s === ME || p.roleUp || st.roleKnow[ME][s] || ui.reveal.roles) lines.push(`<div class="seat-portrait">${art(p.role)}</div><p><b>${r.name}</b>（${TEAMS[r.team]} · 喜好${FOOD[r.food]}）${!p.roleUp && s !== ME && !ui.reveal.roles ? ' <span class="hint">只有你知道</span>' : ''}</p><p>${r.desc}</p>`);
+  if (p.role && (isMe(s) || p.roleUp || st.roleKnow[ME][s] || ui.reveal.roles)) lines.push(`<div class="seat-portrait">${art(p.role)}</div><p><b>${r.name}</b>（${TEAMS[r.team]} · 喜好${FOOD[r.food]}）${!p.roleUp && !isMe(s) && !ui.reveal.roles ? ' <span class="hint">只有你知道</span>' : ''}</p><p>${r.desc}</p>`);
   else lines.push('<p>角色：❓ 未知（背面朝上）</p>');
   const ap = st.apples[p.apple], k = st.know[ME][ap.id];
   lines.push(`<p>苹果：${ap.up ? `正面朝上：${ap.type === 'poison' ? '☠️ 毒苹果' : '🍎 普通苹果'}` : k ? (k === 'poison' ? '☠️ 你知道这颗是毒的' : '🍎 你知道这颗是普通的') : '❓ 不知道'}</p>`);
   if (p.prefs.length) lines.push(`<p>桌前的提问卡：${p.prefs.map(x => `你喜欢${FOOD[x.q]}吗？→ ${x.yes ? '↕️ 竖放（喜欢）' : '↔️ 横放（不喜欢）'}`).join('；')}</p>`);
-  if (s === ME && p.role === 'green') lines.push(`<p>👁️ 开局看到白雪公主：${st.players[st.intel.green.snow].name}</p>`);
-  if (s === ME && p.role === 'black') lines.push(`<p>👁️ 开局毒苹果在：${st.intel.black.poison.map(x => st.players[x].name).join('、')}（之后可能被换走）</p>`);
+  if (isMe(s) && p.role === 'green') lines.push(`<p>👁️ 开局看到白雪公主：${st.players[st.intel.green.snow].name}</p>`);
+  if (isMe(s) && p.role === 'black') lines.push(`<p>👁️ 开局毒苹果在：${st.intel.black.poison.map(x => st.players[x].name).join('、')}（之后可能被换走）</p>`);
   const hk = st.handKnow[ME][s];
-  lines.push(`<p>手牌：${s === ME ? p.hand.map(cardName).join('、') || '无' : `${p.hand.length} 张${hk ? `（你在第 ${hk.turn} 手时知道是：${hk.cards.map(cardName).join('、') || '空'}）` : ''}`}</p>`);
+  lines.push(`<p>手牌：${isMe(s) ? p.hand.map(cardName).join('、') || '无' : `${p.hand.length} 张${hk ? `（你在第 ${hk.turn} 手时知道是：${hk.cards.map(cardName).join('、') || '空'}）` : ''}`}</p>`);
   const said = st.claims.filter(c => c.seat === s).slice(-6);
-  if (said.length) lines.push(`<p>💬 ${s === ME ? '你' : '他'}说过：</p><ul>${said.map(c => `<li>${c.text}</li>`).join('')}</ul>`);
-  if (s !== ME && liesCaught(st, ME, s) > 0) lines.push('<p>🤥 <b>你抓到他说过谎</b>（和你亲眼看到的对不上）</p>');
+  if (said.length) lines.push(`<p>💬 ${isMe(s) ? '你' : '他'}说过：</p><ul>${said.map(c => `<li>${c.text}</li>`).join('')}</ul>`);
+  if (!isMe(s) && !ui.spect && liesCaught(st, ME, s) > 0) lines.push('<p>🤥 <b>你抓到他说过谎</b>（和你亲眼看到的对不上）</p>');
   if (p.roped) lines.push('<p>🪢 被绳索绑住：下个回合跳过</p>');
   if (p.warded) lines.push('<p>🛡️ 葛瑞守护中：现在不能对他做任何事</p>');
   if (p.killedBy === 'ring' && ringShown(s)) lines.push('<p>💍 手上的是【诅咒戒指】，被诅咒而死</p>');
@@ -803,6 +835,86 @@ function showRules() {
   <h3>结束</h3><ul><li>牌堆空了以后，所有人再各行动一次（最后的回合）。轮到某人时他手上还是【诅咒戒指】，就当场被诅咒而死，不能行动。</li><li>女王最先公开身份和苹果；若是毒苹果，可以指定一人吃下。</li><li>所有人翻开：持毒苹果的、被毒梳子杀害的、手里还攥着诅咒戒指的都会死。白雪若持【啊，是王子大人】且死于毒苹果则复活。</li></ul>
   <h3>发言</h3><ul><li>每回合行动前免费说一句，可以说谎。AI 会对照自己看到的来判断信不信你。</li></ul>
   <h3>角色</h3><ul>${Object.entries(ROLES).map(([key,r]) => `<li class="entry">${art(key)}<b>${r.name}</b>（${TEAMS[r.team]}，喜好${FOOD[r.food]}）：${r.desc}</li>`).join('')}</ul>`);
+}
+
+// ---------------- 联机 ----------------
+function showScreen(which) {
+  $('#screen-start').classList.toggle('hidden', which === 'game');
+  $('#screen-game').classList.toggle('hidden', which !== 'game');
+  $('#start-main').classList.toggle('hidden', which !== 'home');
+  $('#lobby-card').classList.toggle('hidden', which !== 'lobby');
+  $('#start-sub').textContent = which === 'lobby' ? '联机房间 · 最多 8 人入座' : '毒苹果 · 八人身份推理';
+}
+function goHome() {
+  voiceStop(); closeOverlay(); closeSheet();
+  if (online.isOnline()) online.leave();
+  st = null; ui = fresh(); ME = 0;
+  showScreen('home');
+}
+function showLobby() { voiceStop(); closeOverlay(); closeSheet(); st = null; ui = fresh(); showScreen('lobby'); online.renderLobby(); }
+
+function enterOnline() {
+  const name = ($('#in-name').value.trim() || '我').slice(0, 8);
+  try { localStorage.setItem('pa-name', name); } catch {}
+  loadPlayerLines(AIS.map(x => x[3]));
+  showLobby();
+  online.renderLobby(null);
+  $('#lobby-status').textContent = '';
+  online.join(name, {
+    onGame: onlineGame,
+    onLobby: info => { if (!$('#lobby-card').classList.contains('hidden')) online.renderLobby(info); },
+    onError: (msg, fatal) => { toast(msg, 4500); ui.sent = false; if (st) render(); if (fatal) { st = null; showScreen('home'); } },
+    onStatus: text => { $('#lobby-status').textContent = text; if (text) toast(text, 2500); },
+  });
+}
+$('#btn-lobby-start').onclick = () => online.startGame();
+$('#btn-lobby-leave').onclick = goHome;
+
+function enterTable(m) {
+  ME = m.seat >= 0 ? m.seat : 0;
+  st = m.view;
+  ui = fresh(); ui.spect = m.seat < 0;
+  loadPlayerLines(st.players.map(p => p.voice).filter(Boolean));
+  closeOverlay(); closeSheet(); voiceStop();
+  showScreen('game');
+  render();
+}
+
+// 服务器发来的对局消息（已经按顺序排好队；返回的 Promise 结束 = 演完了）
+async function onlineGame(m) {
+  if (m.t === 'start') {
+    enterTable(m);
+    if (ui.spect) { toast('本局真人已满或已开局，你在观战', 2600); return; }
+    await new Promise(res => { ui.nightDone = res; showIntro(); });
+    return;
+  }
+  if (m.t === 'sync') {
+    enterTable(m);
+    if (st.phase === 'play' && st.pending?.mode === 'answer' && st.pending.seat === ME && !ui.spect) askNavy();
+    return;
+  }
+  if (m.t !== 'up' || !st) return;
+  const seat = m.seat, a = m.a, game = st, before = st.log.length;
+  ui.sent = false;
+  ui.busy = true;
+  // AI 换苹果 / 换手牌：先开口，说完再动手（与单机一致）
+  if ((a.type === 'swapApple' || a.type === 'swapHand') && Number.isInteger(a.target) && !st.players[seat].human) {
+    await speak(seat, a.type === 'swapApple' ? 'act_swapApple' : 'act_swapHand', { fallback: a.type === 'swapApple' ? `我要跟${nmS(a.target)}换苹果。` : `手牌跟${nmS(a.target)}换一换。` });
+    if (st !== game) return;
+  }
+  ui.flipMs = a.type === 'swapApple' || a.type === 'ability' || a.type === 'swapHand' ? 1300 : null;
+  st = m.view;
+  if (seat === ME && a.type !== 'say') ui.sel = null;
+  if (m.auto && seat === ME && !ui.spect) toast('你太久没有操作，AI 帮你走了这一步', 2600);
+  holdPref(m.evStart); holdRing(m.evStart);
+  bubbleFor(seat, a);
+  afterAct(before);
+  render();
+  try { await present(seat, a, m.evStart, false); } finally { ui.busy = false; }
+  if (!st) return;
+  render();
+  if (st.phase === 'play' && st.pending?.mode === 'answer' && st.pending.seat === ME && !ui.spect) askNavy();
+  if (st.phase === 'settle') await settle();
 }
 
 window.__pa = {
