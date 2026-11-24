@@ -9,7 +9,7 @@ loadLines();
 const $ = s => document.querySelector(s);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const ME = 0;
-const badges = { '🦊': 'fox', '🐻': 'bear', '🐰': 'hare', '🦉': 'owl', '🐱': 'cat', '🐺': 'wolf', '🦌': 'stag', '🙂': 'guest', '🦡': 'badger', '🦦': 'otter', '🐶': 'spotted-pup', '🐈‍⬛': 'black-cat' };
+const badges = { '🐰': 'hare', '🐺': 'wolf', '🦌': 'stag', '🙂': 'guest', '🦡': 'badger', '🦦': 'otter', '🐶': 'spotted-pup', '🐈‍⬛': 'black-cat' };
 function art(key, cls = '') {
   return `<img class="illustration ${cls}" src="art/${key}.webp" alt="" draggable="false">`;
 }
