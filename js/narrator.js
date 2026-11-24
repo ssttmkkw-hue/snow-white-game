@@ -16,6 +16,7 @@ let LINES = {
   black_open: '布莱克，请睁眼。看看，毒苹果在谁的手上。',
   black_close: '布莱克，请闭眼。',
   dawn: '天亮了。所有人，请睁眼。晚宴……开始。',
+  ring_curse: '诅咒戒指……发作了。',
 };
 let loaded = false;
 let muted = false;

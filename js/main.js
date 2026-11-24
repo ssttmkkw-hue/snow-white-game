@@ -623,12 +623,12 @@ async function present(seat, a, evStart, finalBefore) {
   if (st === game && isFinal(st) && !ui.saidFinal && !st.pending && st.turn !== seat) {
     ui.saidFinal = true; $('#news').innerHTML = lineText('final_round'); await voice('final_round'); await sleep(400);
   }
-  for (const e of evs) if (e.k === 'ringDeath' && st === game) await presentRingDeath(e.seat, game);
+  for (const e of evs) if (e.k === 'ringDeath' && st === game) await presentRingDeath(e.seat, game, e.via);
   if (st === game) { ui.bubbles = {}; render(); }
 }
 
 // 最后的回合轮到某人时，他手上还是诅咒戒指 → 当场倒下。停久一点，让大家看清发生了什么
-async function presentRingDeath(s, game) {
+async function presentRingDeath(s, game, via) {
   const who = s === ME ? '你' : st.players[s].name;
   ui.hideRing?.delete(s);
   ui.ringShow = true;
@@ -636,9 +636,13 @@ async function presentRingDeath(s, game) {
   ui.bubbles = { [s]: '💍 被诅咒而死……' };
   $('#news').innerHTML = `💍 ${who}手上的是【诅咒戒指】，被诅咒而死！`;
   overlay(`<div class="scene-seal">${art('ring')}</div><h2>${who}被诅咒而死</h2>
-    <p>最后的回合轮到${who}时，手上还攥着【诅咒戒指】……<br>${who}倒下了，不能再行动。</p>`, true);
+    <p>${via === 'baton' ? `最后的回合里${who}接棒时` : `最后的回合轮到${who}时`}，手上还攥着【诅咒戒指】……<br>${who}倒下了，不能再行动。</p>`, true);
   render();
-  await sleep(4200 * Math.max(ui.speed, 0.6));
+  // 裁判：“诅咒戒指……发作了。”念完再多停一会儿；整段至少 4.2 秒（快速模式按比例缩短）
+  const k = Math.max(ui.speed, 0.6), t0 = Date.now();
+  await voice('ring_curse');
+  if (st !== game) return;
+  await sleep(Math.max(4200 * k - (Date.now() - t0), 1500 * k));
   if (st !== game) return;
   closeOverlay();
   ui.ringShow = false; ui.nightGlow = null; ui.bubbles = {};

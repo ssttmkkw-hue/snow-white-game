@@ -57,6 +57,8 @@ def synth(text: str, voice: str, key: str, sr: int = 24000, fmt: str = "mp3") ->
     url = (out.get("audio") or {}).get("url") or out.get("url")
     if not url:
         raise RuntimeError(f"接口没有返回音频地址：{json.dumps(res, ensure_ascii=False)[:300]}")
+    if url.startswith("http://"):   # 接口给的是 http 的 OSS 地址；同一地址 https 也能下（有些网络只放行 https）
+        url = "https://" + url[len("http://"):]
     with urllib.request.urlopen(url, timeout=60) as r:
         audio = r.read()
     used = (res.get("usage") or {}).get("characters") or billed(text)

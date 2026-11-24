@@ -361,6 +361,7 @@ function playCard(st, seat, card, t, opt) {
       st.turn = t;
       st.saidThisTurn = false;
       ev(st, { k: 'baton', seat, target: t });
+      if (cursedNow(st, t, 'baton')) return;   // 接棒的人当场被戒指咒死：这次额外行动没了，回到出牌人收尾
       return 'baton';
     }
     case 'knife': {
@@ -463,16 +464,19 @@ function endTurn(st) {
 function skipIfNeeded(st) {
   const p = st.players[st.turn];
   if (p.killed) { log(st, `${p.name} 已经倒下，跳过。`); return endTurn(st); }
-  // 最后的回合里，轮到某人时他手里还攥着诅咒戒指 → 立刻被诅咒而死，不能行动
-  if (isFinal(st) && p.hand.includes('ring')) {
-    p.killed = true; p.killedBy = 'ring';
-    st.handKnow.forEach(hk => { hk[p.seat] = { cards: ['ring'], turn: st.turnCount, partial: true }; });
-    log(st, `💍 轮到 ${p.name} 时，手里还攥着【诅咒戒指】……被诅咒而死！`, 'all', 'warn', 'ringDeath');
-    ev(st, { k: 'ringDeath', seat: p.seat });
-    return endTurn(st);
-  }
+  if (cursedNow(st, p.seat)) return endTurn(st);
   if (p.roped) { p.roped = false; log(st, `🪢 ${p.name} 被绳索绑着，跳过这个回合。`, 'all', 'warn'); ev(st, { k: 'skip', seat: p.seat }); return endTurn(st); }
   return null;
+}
+// 诅咒戒指：已经进入最后的回合，某人要开始行动（自己的回合，或被【交棒！】提前叫起来）时手里还攥着戒指 → 立刻被诅咒而死，不能行动
+function cursedNow(st, s, via = 'turn') {
+  const p = st.players[s];
+  if (!isFinal(st) || p.killed || !p.hand.includes('ring')) return false;
+  p.killed = true; p.killedBy = 'ring';
+  st.handKnow.forEach(hk => { hk[s] = { cards: ['ring'], turn: st.turnCount, partial: true }; });
+  log(st, `💍 ${via === 'baton' ? `${p.name} 接棒时` : `轮到 ${p.name} 时`}，手里还攥着【诅咒戒指】……被诅咒而死！`, 'all', 'warn', 'ringDeath');
+  ev(st, { k: 'ringDeath', seat: s, via });
+  return true;
 }
 function toSettle(st) { st.phase = 'settle'; st.turn = -1; log(st, '🍽️ 最后的回合结束——最后的晚餐开始了！', 'all', 'warn'); return { ok: true, settle: true }; }
 
