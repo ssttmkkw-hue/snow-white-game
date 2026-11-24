@@ -39,7 +39,7 @@ export const CARDS = {
   rope:    { name: '绳索', icon: '🪢', target: 'other', weapon: true, desc: '武器。指定一位玩家，他跳过下一个回合。' },
   comb:    { name: '毒梳子', icon: '🪮', target: 'other', weapon: true, final: true, desc: '武器。只能在最后的回合阶段使用：杀害指定玩家。' },
   dodge:   { name: '哎呀好危险', short: '好危险', icon: '🛡️', passive: true, desc: '持有时，被武器攻击会自动亮出，让那张武器无效，然后收回手牌。' },
-  ring:    { name: '诅咒戒指', icon: '💍', passive: true, cursed: true, desc: '不能主动弃置，只能通过交换手牌送出去。最后仍持有戒指的玩家会被杀害。' },
+  ring:    { name: '诅咒戒指', icon: '💍', passive: true, cursed: true, desc: '不能主动弃置，只能通过交换手牌送出去。最后的回合里，轮到你时手上还是戒指，会立刻被诅咒而死、不能行动；结尾仍持有戒指的玩家也会被杀害。' },
   prince:  { name: '啊，是王子大人', short: '王子大人', icon: '🤴', passive: true, desc: '白雪公主持有这张牌、并且死于毒苹果时，可以复活。' },
 };
 export const cardName = c => CARDS[c].short || CARDS[c].name;
@@ -82,8 +82,8 @@ export const isFinal = st => st.finalTurnsLeft !== null;
 const nm = (st, s) => st.players[s].name;
 const showApple = t => (t === 'poison' ? '☠️毒苹果' : '🍎普通苹果');
 
-export function log(st, text, vis = 'all', kind = 'info') {
-  st.log.push({ i: st.log.length, text, vis, kind, turn: st.turnCount, round: st.round });
+export function log(st, text, vis = 'all', kind = 'info', tag) {
+  st.log.push({ i: st.log.length, text, vis, kind, turn: st.turnCount, round: st.round, ...(tag ? { tag } : {}) });
 }
 export const visibleLog = (st, seat) => st.log.filter(e => e.vis === 'all' || e.vis === seat);
 function ev(st, e) { e.t = st.turnCount; st.events.push(e); }
@@ -108,7 +108,7 @@ export function newGame({ players, seed = (Date.now() & 0x7fffffff), setup } = {
       seat: i, name: p.name, human: !!p.human, avatar: p.avatar || '', gender: p.gender || '', voice: p.voice || '',
       role: roles[i], roleUp: false, used: false,
       apple: i, hand: [deck.pop()],
-      warded: false, roped: false, killed: false,
+      warded: false, roped: false, killed: false, killedBy: null,   // killedBy: 'comb' | 'ring'
       prefs: [],            // 桌前的提问卡 {q:'apple'|'mushroom', yes, by}
     })),
     deck, discard: [],
@@ -143,7 +143,8 @@ export function newGame({ players, seed = (Date.now() & 0x7fffffff), setup } = {
 function rnd(st) { return (st._r || (st._r = rng(st.seed + st.turnCount * 7919 + 17)))(); }
 
 // ---------- 合法性 ----------
-export const targetable = (st, s, by) => s === by || !st.players[s].warded;
+// 已倒下的人（毒梳子 / 诅咒戒指）不能再被指定，也不能和他交换（免得把戒指塞给死人）
+export const targetable = (st, s, by) => s === by || (!st.players[s].warded && !st.players[s].killed);
 
 export function legalMain(st, seat) {
   const p = st.players[seat];
@@ -381,7 +382,7 @@ function playCard(st, seat, card, t, opt) {
     }
     case 'comb': {
       log(st, `🪮 ${nm(st, seat)} 对 ${nm(st, t)} 打出【毒梳子】！`, 'all', 'warn');
-      weapon(st, seat, t, card, () => { toDiscard(); P[t].killed = true; log(st, `💀 ${nm(st, t)} 被毒梳子杀害了。`, 'all', 'warn'); ev(st, { k: 'killed', seat: t }); });
+      weapon(st, seat, t, card, () => { toDiscard(); P[t].killed = true; P[t].killedBy = 'comb'; log(st, `💀 ${nm(st, t)} 被毒梳子杀害了。`, 'all', 'warn'); ev(st, { k: 'killed', seat: t }); });
       return;
     }
     case 'itadaki': {
@@ -462,6 +463,14 @@ function endTurn(st) {
 function skipIfNeeded(st) {
   const p = st.players[st.turn];
   if (p.killed) { log(st, `${p.name} 已经倒下，跳过。`); return endTurn(st); }
+  // 最后的回合里，轮到某人时他手里还攥着诅咒戒指 → 立刻被诅咒而死，不能行动
+  if (isFinal(st) && p.hand.includes('ring')) {
+    p.killed = true; p.killedBy = 'ring';
+    st.handKnow.forEach(hk => { hk[p.seat] = { cards: ['ring'], turn: st.turnCount, partial: true }; });
+    log(st, `💍 轮到 ${p.name} 时，手里还攥着【诅咒戒指】……被诅咒而死！`, 'all', 'warn', 'ringDeath');
+    ev(st, { k: 'ringDeath', seat: p.seat });
+    return endTurn(st);
+  }
   if (p.roped) { p.roped = false; log(st, `🪢 ${p.name} 被绳索绑着，跳过这个回合。`, 'all', 'warn'); ev(st, { k: 'skip', seat: p.seat }); return endTurn(st); }
   return null;
 }
@@ -485,11 +494,11 @@ export function claimText(st, c) {
 }
 // 刚偷看完自己的苹果，紧接着说一句（这是唯一自然说“我的苹果是…”的时机；可以说谎）
 export function canRemarkAfterPeek(st, seat) {
-  // 自己最后一次偷看之后，只允许出现“被绳索跳过”之类的自动事件
+  // 自己最后一次偷看之后，只允许出现“被绳索跳过 / 下家被戒指咒死”之类的自动事件
   for (let i = st.events.length - 1; i >= 0; i--) {
     const e = st.events[i];
     if (e.k === 'peekOwn') return (st.phase === 'play' || st.phase === 'settle') && e.seat === seat;
-    if (e.k !== 'skip') return false;
+    if (e.k !== 'skip' && e.k !== 'ringDeath') return false;
   }
   return false;
 }

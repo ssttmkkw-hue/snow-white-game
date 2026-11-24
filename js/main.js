@@ -128,14 +128,15 @@ const sideOf = k => (k === 0 ? 'b' : k === 4 ? 't' : k < 4 ? 'l' : 'r');
 function seatClasses(s, forSpot) {
   const p = st.players[s], c = [];
   if (s === ME) c.push('me');
-  if (!forSpot && st.turn === s && st.phase === 'play' && !ui.night) c.push('turn');   // 当前行动者只点亮名牌
+  if (!forSpot && st.turn === s && st.phase === 'play' && !ui.night && !ui.ringShow) c.push('turn');   // 当前行动者只点亮名牌
   if (ui.nightGlow?.seats?.includes(s)) c.push('nglow');
   const tg = ui.target;
   if (tg) { if (tg.ok(s)) c.push('pickable'); else c.push('dim'); if (tg.picked.includes(s)) c.push('picked'); }
   if (!forSpot && ui.reveal.final && st.result?.winners.includes(s)) c.push('win');
   return c.join(' ');
 }
-const isDead = s => st.players[s].killed || !!(ui.dead && ui.dead[s]);
+const ringShown = s => st.players[s].killedBy === 'ring' && !ui.hideRing?.has(s);   // 被戒指咒死、且已经演出过
+const isDead = s => (st.players[s].killed && !ui.hideRing?.has(s)) || !!(ui.dead && ui.dead[s]);
 
 function avatarHTML(s) {
   const p = st.players[s];
@@ -143,6 +144,7 @@ function avatarHTML(s) {
   const stt = [];
   if (p.roped) stt.push('🪢');
   if (p.warded) stt.push('🛡️');
+  if (ringShown(s)) stt.push('💍');
   if (s !== ME && !ui.reveal.roles && liesCaught(st, ME, s) > 0) stt.push('🤥');
   const bub = ui.bubbles[s];
   return `<div class="av side-${sideOf(k)} ${seatClasses(s)}" data-seat="${s}" style="grid-area:${AV[k]}">
@@ -179,7 +181,8 @@ function spotHTML(s) {
     ${appleArt(visibleKind)}
   </div>`;
   const n = Math.min(p.hand.length, 4);
-  const hand = n ? `<div class="fan" data-hand="${handId(p.hand)}" title="手牌 ${p.hand.length} 张">${Array.from({ length: n }, (_, i) => `<i style="transform:rotate(${(i - (n - 1) / 2) * 14}deg)"></i>`).join('')}</div>` : '';
+  const ringUp = ringShown(s) ? p.hand.indexOf('ring') : -1;   // 被诅咒而死：那张戒指正面朝上摆在桌前
+  const hand = n ? `<div class="fan" data-hand="${handId(p.hand)}" title="${ringUp >= 0 ? '手上的是【诅咒戒指】，被诅咒而死' : `手牌 ${p.hand.length} 张`}">${Array.from({ length: n }, (_, i) => `<i style="transform:rotate(${(i - (n - 1) / 2) * 14}deg)${i === ringUp ? ";background-image:url('art/ring.webp')" : ''}"></i>`).join('')}</div>` : '';
   const prefs = p.prefs.filter((x, i) => !(ui.hidePref && ui.hidePref.seat === s && i === p.prefs.length - 1)).map(x => `<div class="tc pref ${x.yes ? 'yes' : 'no'}" title="你喜欢${FOOD[x.q]}吗？${x.yes ? '竖放：喜欢' : '横放：不喜欢'}"><span>${art(x.q === 'apple' ? 'likeApple' : 'likeShroom')}</span><b>?</b></div>`).join('');
   return `<div class="spot side-${sideOf(k)} ${seatClasses(s, true)}" data-seat="${s}" style="grid-area:${SP[k]}">
     <div class="spin${SPIN_SIDE[sideOf(k)] ? ' spin-side' : ''}" data-rot="${SPIN[sideOf(k)]}" data-sc="${SPIN_SIDE[sideOf(k)] || 1}" style="transform:${SPIN_SIDE[sideOf(k)] ? 'translate(-50%,-50%) ' : ''}rotate(${SPIN[sideOf(k)]}deg)${SPIN_SIDE[sideOf(k)] ? ` scale(${SPIN_SIDE[sideOf(k)]})` : ''}">
@@ -438,7 +441,7 @@ async function doAct(a) {
     act(st, ME, a);
     if (a.type !== 'say') ui.sel = null;
     ui.flipMs = a.type === 'swapApple' || a.type === 'ability' || a.type === 'swapHand' ? 1300 : null;
-    holdPref(evStart);
+    holdPref(evStart); holdRing(evStart);
     bubbleFor(ME, a);
     afterAct(before);
   } catch (err) { toast(err.message); render(); return; }
@@ -451,10 +454,12 @@ async function doAct(a) {
 
 // 刚被提问的人：先藏起桌上那张新提问卡，等他开口回答时再摆出来
 function holdPref(evStart) { const pf = st.events.slice(evStart).find(e => e.k === 'pref'); ui.hidePref = pf ? { seat: pf.seat } : null; }
+// 最后的回合里有人被戒指咒死：先别显示，等这一步演出完再单独揭晓
+function holdRing(evStart) { const ds = st.events.slice(evStart).filter(e => e.k === 'ringDeath').map(e => e.seat); ui.hideRing = ds.length ? new Set(ds) : null; }
 function afterAct(before) {
   const mine = st.log.slice(before).filter(e => e.vis === ME);
   if (mine.length) toast(mine.map(e => e.text).join('<br>'), 2800);
-  const pub = st.log.slice(before).filter(e => e.vis === 'all');
+  const pub = st.log.slice(before).filter(e => e.vis === 'all' && e.tag !== 'ringDeath');
   if (pub.length) $('#news').innerHTML = pub[pub.length - 1].text;
 }
 
@@ -531,7 +536,7 @@ async function step(seat) {
   }
   ui.flipMs = a.type === 'swapApple' || a.type === 'ability' || a.type === 'swapHand' ? 1300 : null;
   try { act(st, seat, a); } catch (e) { console.warn('AI 出错，改为看苹果', e, a); try { act(st, seat, { type: 'peekOwn' }); } catch {} }
-  holdPref(evStart);
+  holdPref(evStart); holdRing(evStart);
   // 偷看完自己的苹果，偶尔顺口说一句
   if (a.type === 'peekOwn') { const v = aiAfterPeek(st, seat); if (v) { try { remarkAfterPeek(st, seat, v); a.remark = v; } catch {} } }
   bubbleFor(seat, a);
@@ -618,7 +623,27 @@ async function present(seat, a, evStart, finalBefore) {
   if (st === game && isFinal(st) && !ui.saidFinal && !st.pending && st.turn !== seat) {
     ui.saidFinal = true; $('#news').innerHTML = lineText('final_round'); await voice('final_round'); await sleep(400);
   }
+  for (const e of evs) if (e.k === 'ringDeath' && st === game) await presentRingDeath(e.seat, game);
   if (st === game) { ui.bubbles = {}; render(); }
+}
+
+// 最后的回合轮到某人时，他手上还是诅咒戒指 → 当场倒下。停久一点，让大家看清发生了什么
+async function presentRingDeath(s, game) {
+  const who = s === ME ? '你' : st.players[s].name;
+  ui.hideRing?.delete(s);
+  ui.ringShow = true;
+  ui.nightGlow = { seats: [s] };
+  ui.bubbles = { [s]: '💍 被诅咒而死……' };
+  $('#news').innerHTML = `💍 ${who}手上的是【诅咒戒指】，被诅咒而死！`;
+  overlay(`<div class="scene-seal">${art('ring')}</div><h2>${who}被诅咒而死</h2>
+    <p>最后的回合轮到${who}时，手上还攥着【诅咒戒指】……<br>${who}倒下了，不能再行动。</p>`, true);
+  render();
+  await sleep(4200 * Math.max(ui.speed, 0.6));
+  if (st !== game) return;
+  closeOverlay();
+  ui.ringShow = false; ui.nightGlow = null; ui.bubbles = {};
+  render();
+  await sleep(600 * ui.speed);
 }
 
 function askNavy() {
@@ -634,6 +659,7 @@ function askNavy() {
     const before = st.log.length;
     const evStart = st.events.length;
     act(st, ME, { type: 'answer', yes: b.dataset.ans === '1' });
+    holdRing(evStart);
     bubbleFor(ME, { type: 'answer' }); afterAct(before); render();
     ui.busy = true;
     present(ME, { type: 'answer' }, evStart, isFinal(st)).finally(() => { ui.busy = false; render(); loop(); });
@@ -694,7 +720,7 @@ function showResult() {
   const meWin = r.winners.includes(ME);
   const rows = st.players.map(p => {
     const role = ROLES[p.role];
-    const fate = p.killed ? '🪮 被杀害' : r.ringDeath[p.seat] ? '💍 戒指' : r.poisoned[p.seat] ? (st.forcedEat === p.seat ? '👑 被逼吃毒' : '☠️ 中毒') : (p.role === 'snow' && r.revived ? '🤴 复活' : '😋 存活');
+    const fate = p.killedBy === 'ring' ? '💍 被诅咒而死' : p.killed ? '🪮 被杀害' : r.ringDeath[p.seat] ? '💍 戒指' : r.poisoned[p.seat] ? (st.forcedEat === p.seat ? '👑 被逼吃毒' : '☠️ 中毒') : (p.role === 'snow' && r.revived ? '🤴 复活' : '😋 存活');
     return `<div class="result-row ${r.winners.includes(p.seat) ? 'w' : ''} ${r.dead[p.seat] ? 'd' : ''}">
       ${art(p.role, 'result-portrait')}<span class="grow">${nmS(p.seat)} · ${role.name}</span><span>${fate}</span>${r.winners.includes(p.seat) ? '🏆' : ''}</div>`;
   }).join('');
@@ -755,7 +781,8 @@ function seatInfo(s) {
   if (s !== ME && liesCaught(st, ME, s) > 0) lines.push('<p>🤥 <b>你抓到他说过谎</b>（和你亲眼看到的对不上）</p>');
   if (p.roped) lines.push('<p>🪢 被绳索绑住：下个回合跳过</p>');
   if (p.warded) lines.push('<p>🛡️ 葛瑞守护中：现在不能对他做任何事</p>');
-  if (p.killed) lines.push('<p>🪮 已被毒梳子杀害</p>');
+  if (p.killedBy === 'ring' && ringShown(s)) lines.push('<p>💍 手上的是【诅咒戒指】，被诅咒而死</p>');
+  else if (p.killedBy === 'comb') lines.push('<p>🪮 已被毒梳子杀害</p>');
   sheet(nmS(s), lines.join(''));
 }
 
@@ -769,7 +796,7 @@ function showRules() {
   <li><b>查苹果</b>：偷看自己现在的苹果。</li><li><b>角色技能</b>：莱特、葛瑞（翻开角色卡发动；已被翻开就不能用）。</li></ul>
   <h3>故事牌</h3><ul>${Object.entries(CARDS).map(([key,c]) => `<li class="entry">${art(key)}<b>${c.name}</b>${c.weapon ? '（武器）' : ''}：${c.desc}</li>`).join('')}</ul>
   <h3>桌面怎么看</h3><ul><li>每人桌前：角色卡（月下森林牌背为隐藏身份，紫色虚线表示私人情报）、苹果（亮红色为未知，笑脸为普通，骷髅为有毒）、手牌背面数、提问卡（<b>竖放=喜欢，横放=不喜欢</b>）。</li><li>🪢被绑（跳过下回合）🛡️葛瑞守护 🪮被杀害 🤥你抓到他撒谎。</li></ul>
-  <h3>结束</h3><ul><li>牌堆空了以后，所有人再各行动一次（最后的回合）。</li><li>女王最先公开身份和苹果；若是毒苹果，可以指定一人吃下。</li><li>所有人翻开：持毒苹果的、被毒梳子杀害的、手里还攥着诅咒戒指的都会死。白雪若持【啊，是王子大人】且死于毒苹果则复活。</li></ul>
+  <h3>结束</h3><ul><li>牌堆空了以后，所有人再各行动一次（最后的回合）。轮到某人时他手上还是【诅咒戒指】，就当场被诅咒而死，不能行动。</li><li>女王最先公开身份和苹果；若是毒苹果，可以指定一人吃下。</li><li>所有人翻开：持毒苹果的、被毒梳子杀害的、手里还攥着诅咒戒指的都会死。白雪若持【啊，是王子大人】且死于毒苹果则复活。</li></ul>
   <h3>发言</h3><ul><li>每回合行动前免费说一句，可以说谎。AI 会对照自己看到的来判断信不信你。</li></ul>
   <h3>角色</h3><ul>${Object.entries(ROLES).map(([key,r]) => `<li class="entry">${art(key)}<b>${r.name}</b>（${TEAMS[r.team]}，喜好${FOOD[r.food]}）：${r.desc}</li>`).join('')}</ul>`);
 }

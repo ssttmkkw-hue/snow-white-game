@@ -10,8 +10,8 @@ for (let i = 0; i < N; i++) {
   if (st.settleSteps[0]?.poison) c.queenHadPoison++;
   if (st.forcedEat === sw) c.queenGuessRight++;
   if (!r.dead[sw]) c.alive++;
-  else if (st.players[sw].killed) { c.comb++; }
-  else if (r.ringDeath[sw]) {
+  else if (st.players[sw].killedBy === 'comb') { c.comb++; }
+  else if (r.ringDeath[sw] || st.players[sw].killedBy === 'ring') {
     c.ring++;
     const last = [...st.events].reverse().find(e => e.k === 'swapHand' && (e.a === sw || e.b === sw));
     const from = last ? st.players[last.a === sw ? last.b : last.a].role : 'drew';

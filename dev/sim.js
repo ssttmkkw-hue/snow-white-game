@@ -28,8 +28,9 @@ if (process.argv[1]?.endsWith('sim.js')) {
       const st = playOut(1000 + i * 31);
       c[st.result.winner]++;
       c.turns += st.turnCount;
-      if (st.players.some(p => p.killed)) c.combKill++;
-      if (st.result.ringDeath.some(Boolean)) c.ring++;
+      if (st.players.some(p => p.killedBy === 'comb')) c.combKill++;
+      if (st.result.ringDeath.some(Boolean) || st.players.some(p => p.killedBy === 'ring')) c.ring++;
+      if (st.players.some(p => p.killedBy === 'ring')) c.ringFinal = (c.ringFinal || 0) + 1;
       if (st.result.revived) c.prince++;
       if (st.settleSteps.some(s => s.k === 'queenGive')) c.give++;
       if (st.events.some(e => e.k === 'dodge')) c.dodge++;
@@ -39,7 +40,7 @@ if (process.argv[1]?.endsWith('sim.js')) {
   }
   const pc = x => (100 * x / games).toFixed(1) + '%';
   console.log(`8人4毒28牌  白雪阵营 ${pc(c.snow)}  女王阵营 ${pc(c.queen)}  罗泽独胜 ${pc(c.rose)}`);
-  console.log(`平均回合 ${(c.turns / games).toFixed(1)} | 毒梳子杀人 ${pc(c.combKill)} | 戒指致死 ${pc(c.ring)} | 王子复活 ${pc(c.prince)} | 女王送毒 ${pc(c.give)} | 挡武器 ${pc(c.dodge)} | 真面目猜中 ${pc(c.reveal)} | 发言 ${(c.talk / games).toFixed(1)} | 错误 ${c.errs}`);
+  console.log(`平均回合 ${(c.turns / games).toFixed(1)} | 毒梳子杀人 ${pc(c.combKill)} | 戒指致死 ${pc(c.ring)}（最后回合开始时 ${pc(c.ringFinal || 0)}） | 王子复活 ${pc(c.prince)} | 女王送毒 ${pc(c.give)} | 挡武器 ${pc(c.dodge)} | 真面目猜中 ${pc(c.reveal)} | 发言 ${(c.talk / games).toFixed(1)} | 错误 ${c.errs}`);
   const per = o => Object.fromEntries(Object.entries(o || {}).map(([k, v]) => [k, +(v / games).toFixed(2)]));
   console.log('每局发言·按类型', per(c.byType));
   console.log('每局发言·按人', per(c.byVoice));
